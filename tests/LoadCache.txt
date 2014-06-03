@@ -1,0 +1,5 @@
+loadCache :: GenHaxl u ()
+loadCache = do
+  cacheRequest (CountAardvarks "yyy") (except (LogicError (NotFound "yyy")))
+  cacheRequest (CountAardvarks "xxx") (Right (3))
+  cacheRequest (ListWombats 100) (Right ([1,2,3]))

@@ -1,0 +1,58 @@
+haskell_unittest(
+    name = 'haxl-core-unit',
+    warnings_flags = [
+        '-fno-warn-name-shadowing',
+        '-fno-warn-missing-signatures',
+        ],
+    srcs = [
+        'TestTypes.hs',
+        'MockTAO.hs',
+        'BatchTests.hs',
+        'CoreTests.hs',
+        'ExampleDataSource.hs',
+        'TestExampleDataSource.hs',
+        'DataCacheTest.hs',
+        'LoadCache.hs',
+        'Main.hs',
+        ],
+    deps = [
+        '@/sigma/haxl/core',
+        '@/sigma/haxl/util',
+        ],
+    packages = [
+        'HUnit',
+        'aeson',
+        'bytestring',
+        'containers',
+        'hashable',
+        'text',
+        'unordered-containers',
+        ],
+ )
+
+
+haskell_binary(
+    name = 'haxl-datacache-bench',
+    main = 'Bench',
+    srcs = [
+        'Bench.hs',
+        ],
+    warnings_flags = [
+        '-fno-warn-name-shadowing',
+        '-fno-warn-missing-signatures',
+        ],
+    compiler_flags = [
+        '-rtsopts'
+        ],
+    deps = [
+        '@/sigma/haxl/core',
+        ],
+    packages = [
+        'hashable',
+        'containers',
+        'aeson',
+        'unordered-containers',
+        'bytestring',
+        'time',
+        ],
+ )

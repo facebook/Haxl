@@ -1,0 +1,14 @@
+haskell_binary(
+    name = 'example',
+    srcs = [
+        'Main.hs',
+    ],
+    deps = [
+        '@/sigma/haxl/core',
+    ],
+    packages = [
+        'hashable',
+        'text',
+        'random',
+    ],
+)

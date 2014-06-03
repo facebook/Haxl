@@ -1,0 +1,9 @@
+cabal-version: >=1.8
+executable example
+  main-is:
+    Main.hs
+  build-depends:
+    hashable,
+    haxl,
+    text,
+    random
