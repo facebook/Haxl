@@ -12,6 +12,7 @@ module Haxl.Core.Env
   ( Env(..)
   , emptyEnv
   , initEnv
+  , Caches
   , initEnvWithData
   , caches
   ) where
