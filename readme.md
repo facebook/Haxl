@@ -28,7 +28,7 @@ Graph API.
 
 ## Where to go next?
 
- * *The Story of Haxl* (a blog post to be published very soon!)
+ * [The Story of Haxl](https://code.facebook.com/posts/302060973291128/open-sourcing-haxl-a-library-for-haskell/)
    explains how Haxl came about at Facebook, and discusses our
    particular use case.
 
@@ -44,6 +44,4 @@ Graph API.
  * [Haxl Documentation](http://hackage.haskell.org/package/haxl) on
    Hackage.
 
- * *There is no Fork: An Abstraction for Efficient, Concurrent, and
-   Concise Data Access*, our paper on Haxl, accepted for publication
-   at ICFP'14.  Online version coming soon (June 12).
+ * [There is no Fork: An Abstraction for Efficient, Concurrent, and Concise Data Access](http://community.haskell.org/~simonmar/papers/haxl-icfp14.pdf), our paper on Haxl, accepted for publication at ICFP'14.
