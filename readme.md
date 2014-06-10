@@ -1,4 +1,4 @@
-![Haxl Logo](http://github.com/facebook/Haxl/raw/master/logo.png)
+![Haxl Logo](https://github.com/facebook/Haxl/raw/master/logo.png)
 
 # Haxl
 
