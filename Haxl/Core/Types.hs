@@ -191,6 +191,14 @@ data PerformFetch
   = SyncFetch  (IO ())
   | AsyncFetch (IO () -> IO ())
 
+-- Why does AsyncFetch contain a `IO () -> IO ()` rather than the
+-- alternative approach of returning the `IO` action to retrieve the
+-- results, which might seem better: `IO (IO ())`?  The point is that
+-- this allows the data source to acquire resources for the purpose of
+-- this fetching round using the standard `bracket` pattern, so it can
+-- ensure that the resources acquired are properly released even if
+-- other data sources fail.
+
 -- | A 'BlockedFetch' is a pair of
 --
 --   * The request to fetch (with result type @a@)
