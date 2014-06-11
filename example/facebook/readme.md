@@ -40,7 +40,7 @@ data FacebookReq a where
 ```
 
 We have three requests: retrieve an arbitrary object, retrieve a user,
-and retrive a user's friends.  In reality there are a lot more request
+and retrieve a user's friends.  In reality there are a lot more request
 types that we could add here, but these will suffice for the example.
 
 Note that the `FacebookReq` type has a type parameter: this is the
