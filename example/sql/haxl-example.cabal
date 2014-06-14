@@ -1,4 +1,6 @@
 cabal-version: >=1.8
+name: haxl-example
+version: 0.1.0.0
 executable example
   main-is:
     Main.hs
@@ -6,4 +8,5 @@ executable example
     hashable,
     haxl,
     text,
-    random
+    random,
+    base
