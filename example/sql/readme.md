@@ -59,7 +59,7 @@ instance StateKey UserReq where
   data State UserReq = UserState {}
 ```
 
-Every data source needs tell Haxl its name, by giving an instance for
+Every data source needs to tell Haxl its name, by giving an instance for
 the `DataSourceName` class:
 
 ```
