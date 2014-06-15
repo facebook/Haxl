@@ -62,7 +62,7 @@ instance StateKey UserReq where
 Every data source needs to tell Haxl its name, by giving an instance for
 the `DataSourceName` class:
 
-```
+```haskell
 instance DataSourceName UserReq where
   dataSourceName _ = "UserDataSource"
 ```
