@@ -125,7 +125,7 @@ instance DataSource () UserReq where
       ids <- sql $ "select id from ids"
 
       -- Store the results.
-      mapM_ (\m -> putMVar m (Right ids)) allIdVars
+      mapM_ (\m -> putResult m (Right ids)) allIdVars
 
     unless (null ids) $ do
 
@@ -137,7 +137,7 @@ instance DataSource () UserReq where
         ]
 
       -- Store the results.
-      mapM_ (\ (m, res) -> putMVar m (Right res)) (zip vars names)
+      mapM_ (\ (m, res) -> putResult m (Right res)) (zip vars names)
 
     where
     allIdVars :: [ResultVar [Id]]
