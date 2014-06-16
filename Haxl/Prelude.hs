@@ -89,7 +89,7 @@ class IfThenElse a b where
   ifThenElse :: a -> b -> b -> b
 
 instance IfThenElse Bool a where
-  ifThenElse b t e = case b of True -> t; False -> e
+  ifThenElse b t e = if b then t else e
 
 -- The equality constraint is necessary to convince the typechecker that
 -- this is valid:
