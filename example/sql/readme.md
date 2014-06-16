@@ -115,51 +115,32 @@ We will use `SyncFetch` here for simplicity. (Haxl also includes `syncFetch` and
 -- We have no user environment, so we use ().
 type Haxl = GenHaxl ()
 
-instance DataSource () UserReq where
-  dataSourceName _ = "UserDataSource"
+instance DataSource u UserReq where
   fetch _state _flags _userEnv blockedFetches = SyncFetch $ do
 
     unless (null allIdVars) $ do
-
-      -- Fetch all the IDs.
-      ids <- sql $ "select id from ids"
-
-      -- Store the results.
-      mapM_ (\m -> putMVar m (Right ids)) allIdVars
+      allIds <- sql "select id from ids"
+      mapM_ (\r -> putSuccess r allIds) allIdVars
 
     unless (null ids) $ do
-
-      -- Fetch all the names.
       names <- sql $ unwords
         [ "select name from names where"
         , intercalate " or " $ map ("id = " ++) idStrings
         , "order by find_in_set(id, '" ++ intercalate "," idStrings ++ "')"
         ]
-
-      -- Store the results.
-      mapM_ (\ (m, res) -> putMVar m (Right res)) (zip vars names)
+      mapM_ (uncurry putSuccess) (zip vars names)
 
     where
     allIdVars :: [ResultVar [Id]]
-    allIdVars = mapMaybe
-      (\bf -> case bf of
-        BlockedFetch GetAllIds m -> Just m
-        _ -> Nothing)
-      blockedFetches
+    allIdVars = [r | BlockedFetch GetAllIds r <- blockedFetches]
 
     idStrings :: [String]
     idStrings = map show ids
 
     ids :: [Id]
     vars :: [ResultVar Name]
-    (ids, vars) = unzip $ foldr go [] blockedFetches
-
-    go
-      :: BlockedFetch UserReq
-      -> [(Id, ResultVar Name)]
-      -> [(Id, ResultVar Name)]
-    go (BlockedFetch (GetNameById userId) m) acc = (userId, m) : acc
-    go _ acc = acc
+    (ids, vars) = unzip
+      [(userId, r) | BlockedFetch (GetNameById userId) r <- blockedFetches]
 ```
 
 ## Tying it All Together
