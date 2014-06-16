@@ -94,7 +94,7 @@ instance DataSource u ExampleReq where
 -- pass in resources from the environment, or parameters to set up the
 -- data source.
 initGlobalState :: IO (State ExampleReq)
-initGlobalState = do
+initGlobalState =
   -- initialize the state here.
   return ExampleState { }
 

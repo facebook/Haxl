@@ -36,7 +36,7 @@ main = do
 getAllUsernames :: Haxl [Name]
 getAllUsernames = do
   userIds <- getAllUserIds
-  for userIds $ \userId -> do
+  for userIds $ \userId ->
     getUsernameById userId
 
 getAllUserIds :: Haxl [Id]
@@ -77,7 +77,7 @@ instance DataSource u UserReq where
 
     unless (null allIdVars) $ do
       allIds <- sql "select id from ids"
-      mapM_ (\r -> putSuccess r allIds) allIdVars
+      mapM_ (`putSuccess` allIds) allIdVars
 
     unless (null ids) $ do
       names <- sql $ unwords
