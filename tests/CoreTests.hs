@@ -48,9 +48,32 @@ exceptions =
     f <- runHaxl en $
          throw (NotFound "haha") `catch` \LogicError{} -> return True
     assertBool "catch2" f
+
+    -- test catchIf
+    let transientOrNotFound e
+          | Just TransientError{} <- fromException e  = True
+          | Just NotFound{} <- fromException e  = True
+          | otherwise = False
+
+    e <- runHaxl en $
+         catchIf transientOrNotFound (throw (NotFound "haha")) $ \_ ->
+           return True
+    assertBool "catchIf1" e
+
+    e <- runHaxl en $
+         catchIf transientOrNotFound (throw (FetchError "haha")) $ \_ ->
+           return True
+    assertBool "catchIf2" e
+
+    e <- runHaxl en $
+           (catchIf transientOrNotFound (throw (CriticalError "haha")) $ \_ ->
+              return True)
+            `catch` \InternalError{} -> return False
+    assertBool "catchIf2" (not e)
   where
   isLeft Left{} = True
   isLeft _ = False
+
 
 -- This is mostly a compile test, to make sure all the plumbing
 -- makes the compiler happy.

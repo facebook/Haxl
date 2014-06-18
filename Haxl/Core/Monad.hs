@@ -21,7 +21,7 @@ module Haxl.Core.Monad (
     env,
 
     -- * Exceptions
-    throw, catch, try, tryToHaxlException,
+    throw, catch, catchIf, try, tryToHaxlException,
 
     -- * Data fetching and caching
     dataFetch, uncachedRequest,
@@ -145,6 +145,7 @@ throw e = GenHaxl $ \_env _ref -> raise e
 raise :: (Exception e) => e -> IO (Result u a)
 raise = return . Throw . toException
 
+-- | Catch an exception in the Haxl monad
 catch :: Exception e => GenHaxl u a -> (e -> GenHaxl u a) -> GenHaxl u a
 catch (GenHaxl m) h = GenHaxl $ \env ref -> do
    r <- m env ref
@@ -154,6 +155,15 @@ catch (GenHaxl m) h = GenHaxl $ \env ref -> do
              | otherwise -> return (Throw e)
      Blocked k -> return (Blocked (catch k h))
 
+-- | Catch exceptions that satisfy a predicate
+catchIf
+  :: Exception e => (e -> Bool) -> GenHaxl u a -> (e -> GenHaxl u a)
+  -> GenHaxl u a
+catchIf cond haxl handler =
+  catch haxl $ \e -> if cond e then handler e else throw e
+
+-- | Returns @'Left' e@ if the computation throws an exception @e@, or
+-- @'Right' a@ if it returns a result @a@.
 try :: Exception e => GenHaxl u a -> GenHaxl u (Either e a)
 try haxl = (Right <$> haxl) `catch` (return . Left)
 
