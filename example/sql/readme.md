@@ -9,9 +9,9 @@ getAllUsernames = do
     getUsernameById userId
 ```
 
-The `IO` version of this code would perform one data fetch for `getAllUsers`, then another for each call to `getUsernameById`; assuming each one is implemented with something like the SQL `select` statement, that means “N+1 selects”.
+The `IO` version of this code would perform one data fetch for `getAllUserIds`, then another for each call to `getUsernameById`; assuming each one is implemented with something like the SQL `select` statement, that means “N+1 selects”.
 
-But Haxl does not suffer from this problem. Using *this very code*, the Haxl implementation will perform *exactly two* data fetches: one to `getAllUsers` and one with all the `getUsernameById` calls batched together.
+But Haxl does not suffer from this problem. Using *this very code*, the Haxl implementation will perform *exactly two* data fetches: one to `getAllUserIds` and one with all the `getUsernameById` calls batched together.
 
 First, a dash of boilerplate:
 
