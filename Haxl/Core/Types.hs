@@ -136,7 +136,7 @@ numFetches (Stats rs) = sum (map fetchesInRound rs)
 -- such as 'IORef'.
 --
 -- For a complete example data source, see
--- <https://phabricator.fb.com/diffusion/FBCODE/browse/master/sigma/haxl/core/tests/ExampleDataSource.hs ExampleDataSource>.
+-- <https://github.com/facebook/Haxl/tree/master/example Examples>.
 --
 class (DataSourceName req, StateKey req, Show1 req) => DataSource u req where
 
