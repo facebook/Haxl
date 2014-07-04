@@ -156,7 +156,7 @@ checkCache flags ref req = do
   let
     do_fetch = do
       rvar <- newEmptyResult
-      writeIORef ref (DataCache.insert req rvar cache)
+      writeIORef ref $! DataCache.insert req rvar cache
       return (Uncached rvar)
   case DataCache.lookup req cache of
     Nothing -> do_fetch

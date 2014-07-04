@@ -2,7 +2,7 @@
 module DataCacheTest (tests) where
 
 import Haxl.Core.DataCache as DataCache
-import Haxl.Core.Types
+import Haxl.Core
 
 import Control.Exception
 import Data.Hashable
@@ -58,5 +58,15 @@ dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
       _something_else -> False
 
 
+dcStrictnessTest :: Test
+dcStrictnessTest = TestLabel "DataCache strictness" $ TestCase $ do
+  env <- initEnv stateEmpty ()
+  r <- Control.Exception.try $ runHaxl env $
+    cachedComputation (Req (error "BOOM")) $ return "OK"
+  assertBool "dcStrictnessTest" $
+    case r of
+      Left (ErrorCall "BOOM") -> True
+      _other -> False
+
 -- tests :: Assertion
-tests = TestList [dcSoundnessTest]
+tests = TestList [dcSoundnessTest, dcStrictnessTest]
