@@ -1,4 +1,6 @@
-{-# LANGUAGE RebindableSyntax, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE RebindableSyntax #-}
 module CoreTests where
 
 import Haxl.Prelude

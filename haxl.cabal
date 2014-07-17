@@ -44,8 +44,6 @@ library
     Haxl.Core,
     Haxl.Core.DataCache,
     Haxl.Core.Exception,
-    Haxl.Core.Env,
-    Haxl.Core.Fetch,
     Haxl.Core.Monad,
     Haxl.Core.RequestStore,
     Haxl.Core.StateStore,
