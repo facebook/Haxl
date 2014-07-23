@@ -315,4 +315,5 @@ objects associated with each of those pages.  This will result in two
 round of fetches: one fetch in the first round, and then *N* fetches
 in the second round, where *N* is the number of pages we need to
 fetch.  The fetches in the second round will be performed
-concurrently, using at most 10 threads.
+concurrently, using at most 10 threads. Note that the `mapM` function is
+imported from [`Haxl.Prelude`](http://hackage.haskell.org/package/haxl-0.1.0.0/docs/Haxl-Prelude.html).
