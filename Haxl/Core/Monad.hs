@@ -401,13 +401,14 @@ performFetches env reqs = do
       getReq :: [BlockedFetch r] -> r a
       getReq = undefined
 
-  modifyIORef' sref $ \(Stats rounds) ->
-     Stats (RoundStats (HashMap.fromList roundstats) : rounds)
+  ifReport f 1 $
+    modifyIORef' sref $ \(Stats rounds) ->
+      Stats (RoundStats (HashMap.fromList roundstats) : rounds)
 
   ifTrace f 1 $
     printf "Batch data fetch (%s)\n" $
-       intercalate (", "::String) $
-           map (\(name,num) -> printf "%d %s" num (Text.unpack name)) roundstats
+      intercalate (", "::String) $
+        map (\(name,num) -> printf "%d %s" num (Text.unpack name)) roundstats
 
   ifTrace f 3 $
     forM_ jobs $ \(BlockedFetches reqs) ->

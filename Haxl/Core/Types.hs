@@ -26,6 +26,7 @@ module Haxl.Core.Types (
   Flags(..),
   defaultFlags,
   ifTrace,
+  ifReport,
 
   -- * Statistics
   Stats(..),
@@ -94,16 +95,23 @@ data InitStrategy
 data Flags = Flags
   { trace :: Int
     -- ^ Tracing level (0 = quiet, 3 = very verbose).
+  , report :: Int
+    -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors)
   }
 
 defaultFlags :: Flags
-defaultFlags = Flags { trace = 0 }
+defaultFlags = Flags
+  { trace = 0
+  , report = 1
+  }
 
 -- | Runs an action if the tracing level is above the given threshold.
 ifTrace :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
-ifTrace flags i m
-  | trace flags >= i = void m
-  | otherwise        = return ()
+ifTrace flags i = when (trace flags >= i) . void
+
+-- | Runs an action if the report level is above the given threshold.
+ifReport :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
+ifReport flags i = when (report flags >= i) . void
 
 -- | Stats that we collect along the way.
 newtype Stats = Stats [RoundStats]
