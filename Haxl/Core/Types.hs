@@ -13,6 +13,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -31,6 +32,8 @@ module Haxl.Core.Types (
   -- * Statistics
   Stats(..),
   RoundStats(..),
+  DataSourceRoundStats(..),
+  Microseconds,
   emptyStats,
   numRounds,
   numFetches,
@@ -65,15 +68,15 @@ module Haxl.Core.Types (
   ) where
 
 import Control.Applicative
+import Control.Concurrent.MVar
 import Control.Exception
-import Data.Typeable
-import Data.Text (Text)
+import Control.Monad
 import Data.Aeson
 import Data.Hashable
-import Control.Concurrent.MVar
-import Control.Monad
-import qualified Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
+import Data.Text (Text)
+import Data.Typeable (Typeable)
 
 #if __GLASGOW_HASKELL__ < 708
 import Haxl.Core.Util (tryReadMVar)
@@ -113,6 +116,8 @@ ifTrace flags i = when (trace flags >= i) . void
 ifReport :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
 ifReport flags i = when (report flags >= i) . void
 
+type Microseconds = Int
+
 -- | Stats that we collect along the way.
 newtype Stats = Stats [RoundStats]
   deriving ToJSON
@@ -120,11 +125,32 @@ newtype Stats = Stats [RoundStats]
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
 -- round.
-newtype RoundStats = RoundStats (HashMap Text Int)
-  deriving ToJSON
+data RoundStats = RoundStats
+  { roundTime :: Microseconds
+  , roundDataSources :: HashMap Text DataSourceRoundStats
+  }
+
+instance ToJSON RoundStats where
+  toJSON RoundStats{..} = object
+    [ "time" .= roundTime
+    , "dataSources" .= roundDataSources
+    ]
+
+-- | Detailed stats of each data source in each round.
+data DataSourceRoundStats = DataSourceRoundStats
+  { dataSourceFetches :: Int
+  , dataSourceTime :: Maybe Microseconds
+  }
+
+instance ToJSON DataSourceRoundStats where
+  toJSON DataSourceRoundStats{..} = object [k .= v | (k, Just v) <-
+    [ ("fetches", Just dataSourceFetches)
+    , ("time", dataSourceTime)
+    ]]
 
 fetchesInRound :: RoundStats -> Int
-fetchesInRound (RoundStats hm) = sum $ HashMap.elems hm
+fetchesInRound (RoundStats _ hm) =
+  sum $ map dataSourceFetches $ HashMap.elems hm
 
 emptyStats :: Stats
 emptyStats = Stats []

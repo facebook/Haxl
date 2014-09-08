@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, RebindableSyntax #-}
+{-# LANGUAGE OverloadedStrings, RebindableSyntax, MultiWayIf #-}
 module TestExampleDataSource (tests) where
 
 import Haxl.Prelude as Haxl
@@ -47,12 +47,15 @@ exampleTest = TestCase $ do
   assertEqual "runTests" x (2 + 3)
 
   -- Should be just one fetching round:
-  Stats s <- readIORef (statsRef env)
-  assertEqual "rounds" 1 (length s)
+  Stats stats <- readIORef (statsRef env)
+  assertEqual "rounds" 1 (length stats)
 
   -- With two fetches:
-  let reqs = case head s of RoundStats m -> HashMap.lookup "ExampleDataSource" m
-  assertEqual "reqs" (Just 2) reqs
+  assertBool "reqs" $
+      if | RoundStats { roundDataSources = m } : _  <- stats,
+           Just (DataSourceRoundStats { dataSourceFetches = 2 })
+              <- HashMap.lookup "ExampleDataSource" m  -> True
+         | otherwise -> False
 
 -- Test side-effect ordering
 

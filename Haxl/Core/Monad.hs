@@ -10,6 +10,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,6 +43,7 @@ import Haxl.Core.Exception
 import Haxl.Core.RequestStore
 import Haxl.Core.Util
 import Haxl.Core.DataCache as DataCache
+import Util.Time
 
 import qualified Data.Text as Text
 import Control.Exception (Exception(..), SomeException)
@@ -401,10 +403,6 @@ performFetches env reqs = do
       getReq :: [BlockedFetch r] -> r a
       getReq = undefined
 
-  ifReport f 1 $
-    modifyIORef' sref $ \(Stats rounds) ->
-      Stats (RoundStats (HashMap.fromList roundstats) : rounds)
-
   ifTrace f 1 $
     printf "Batch data fetch (%s)\n" $
       intercalate (", "::String) $
@@ -423,24 +421,44 @@ performFetches env reqs = do
                 e = DataSourceError $
                       "data source not initialized: " <> dataSourceName req
         Just state ->
-          return $ wrapFetch reqs $ fetch state f (userEnv env) reqs
+          return $ wrapFetchInCatch reqs $ fetch state f (userEnv env) reqs
 
   fetches <- mapM applyFetch jobs
 
-  scheduleFetches fetches
+  times <-
+    if report f >= 2
+    then do
+      (refs, timedfetches) <- mapAndUnzipM wrapFetchInTimer fetches
+      scheduleFetches timedfetches
+      mapM (fmap Just . readIORef) refs
+    else do
+      scheduleFetches fetches
+      return $ repeat Nothing
 
-  ifTrace f 1 $ do
-    t1 <- getCurrentTime
-    printf "Batch data fetch done (%.2fs)\n"
-      (realToFrac (diffUTCTime t1 t0) :: Double)
+  let dsroundstats = HashMap.fromList
+         [ (name, DataSourceRoundStats { dataSourceFetches = fetches
+                                       , dataSourceTime = time
+                                       })
+         | ((name, fetches), time) <- zip roundstats times]
+
+  t1 <- getCurrentTime
+  let roundtime = realToFrac (diffUTCTime t1 t0) :: Double
+
+  ifReport f 1 $
+    modifyIORef' sref $ \(Stats rounds) ->
+      Stats (RoundStats (microsecs roundtime) dsroundstats: rounds)
+
+  ifTrace f 1 $
+    printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
+
 
 -- Catch exceptions arising from the data source and stuff them into
 -- the appropriate requests.  We don't want any exceptions propagating
 -- directly from the data sources, because we want the exception to be
 -- thrown by dataFetch instead.
 --
-wrapFetch :: [BlockedFetch req] -> PerformFetch -> PerformFetch
-wrapFetch reqs fetch =
+wrapFetchInCatch :: [BlockedFetch req] -> PerformFetch -> PerformFetch
+wrapFetchInCatch reqs fetch =
   case fetch of
     SyncFetch io ->
       SyncFetch (io `Control.Exception.catch` handler)
@@ -455,6 +473,24 @@ wrapFetch reqs fetch =
     forceError e (BlockedFetch _ rvar) = do
       void $ tryTakeResult rvar
       putResult rvar (except e)
+
+wrapFetchInTimer :: PerformFetch -> IO (IORef Microseconds, PerformFetch)
+wrapFetchInTimer f = do
+  r <- newIORef 0
+  case f of
+    SyncFetch io -> return (r, SyncFetch (time io >>= writeIORef r))
+    AsyncFetch f -> do
+       inner_r <- newIORef 0
+       return (r, AsyncFetch $ \inner -> do
+         total <- time (f (time inner >>= writeIORef inner_r))
+         inner_t <- readIORef inner_r
+         writeIORef r (total - inner_t))
+
+time :: IO () -> IO Microseconds
+time io = microsecs . fst <$> timeIt io
+
+microsecs :: Double -> Microseconds
+microsecs t = round (t * 10^(6::Int))
 
 -- | Start all the async fetches first, then perform the sync fetches before
 -- getting the results of the async fetches.
