@@ -37,6 +37,9 @@ module Haxl.Core.Types (
   emptyStats,
   numRounds,
   numFetches,
+  ppStats,
+  ppRoundStats,
+  ppDataSourceRoundStats,
 
   -- * Data fetching
   DataSource(..),
@@ -72,10 +75,12 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Data.Aeson
+import Data.Function (on)
 import Data.Hashable
-import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict (HashMap, toList)
 import qualified Data.HashMap.Strict as HashMap
-import Data.Text (Text)
+import Data.List (intercalate, sortBy)
+import Data.Text (Text, unpack)
 import Data.Typeable (Typeable)
 
 #if __GLASGOW_HASKELL__ < 708
@@ -122,6 +127,12 @@ type Microseconds = Int
 newtype Stats = Stats [RoundStats]
   deriving ToJSON
 
+-- | Pretty-print Stats.
+ppStats :: Stats -> String
+ppStats (Stats rss) =
+  intercalate "\n" [ "Round: " ++ show i ++ " - " ++ ppRoundStats rs
+                   | (i, rs) <- zip [(1::Int)..] (reverse rss) ]
+
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
 -- round.
@@ -129,6 +140,13 @@ data RoundStats = RoundStats
   { roundTime :: Microseconds
   , roundDataSources :: HashMap Text DataSourceRoundStats
   }
+
+-- | Pretty-print RoundStats.
+ppRoundStats :: RoundStats -> String
+ppRoundStats (RoundStats t dss) =
+    show t ++ "us\n"
+      ++ unlines [ "  " ++ unpack nm ++ ": " ++ ppDataSourceRoundStats dsrs
+                 | (nm, dsrs) <- sortBy (compare `on` fst) (toList dss) ]
 
 instance ToJSON RoundStats where
   toJSON RoundStats{..} = object
@@ -141,6 +159,12 @@ data DataSourceRoundStats = DataSourceRoundStats
   { dataSourceFetches :: Int
   , dataSourceTime :: Maybe Microseconds
   }
+
+-- | Pretty-print DataSourceRoundStats
+ppDataSourceRoundStats :: DataSourceRoundStats -> String
+ppDataSourceRoundStats (DataSourceRoundStats i t) =
+  maybeTime $ show i ++ " fetches"
+    where maybeTime = maybe id (\ tm s -> s ++ " (" ++ show tm ++ "us)") t
 
 instance ToJSON DataSourceRoundStats where
   toJSON DataSourceRoundStats{..} = object [k .= v | (k, Just v) <-
