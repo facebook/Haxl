@@ -27,7 +27,7 @@ library
 
   build-depends:
     HUnit == 1.2.*,
-    aeson >= 0.6 && <0.8,
+    aeson >= 0.6 && <0.9,
     base == 4.*,
     bytestring >= 0.9 && <0.11,
     containers == 0.5.*,
@@ -35,7 +35,7 @@ library
     filepath == 1.3.*,
     hashable == 1.2.*,
     pretty == 1.1.*,
-    text == 1.1.*,
+    text >= 1.1 && < 1.3,
     time == 1.4.*,
     unordered-containers == 0.2.*,
     vector == 0.10.*
