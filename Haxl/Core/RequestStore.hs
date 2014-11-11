@@ -8,6 +8,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 -- | Bucketing requests by 'DataSource'.
 --
@@ -20,7 +21,8 @@
 -- users should not need to import it.
 module Haxl.Core.RequestStore (
     BlockedFetches(..), RequestStore,
-    noRequests, addRequest, contents
+    noRequests, addRequest, contents,
+    requestsOfType
   ) where
 
 import Haxl.Core.Types
@@ -70,3 +72,12 @@ addRequest bf (RequestStore m) =
 -- | Retrieves the whole contents of the 'RequestStore'.
 contents :: RequestStore u -> [BlockedFetches u]
 contents (RequestStore m) = Map.elems m
+
+-- | Retrieves requests in the 'RequestStore' that have the same type
+-- as a given request.
+requestsOfType :: forall r a u . (Typeable r, Request r a) => r a -> RequestStore u -> [BlockedFetch r]
+requestsOfType _ (RequestStore rs) =
+  let ty = typeOf1 (undefined :: r a)
+  in case Map.lookup ty rs of
+     Just (BlockedFetches result) -> map unsafeCoerce result
+     Nothing -> []
