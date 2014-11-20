@@ -6,6 +6,7 @@
 -- be found in the PATENTS file.
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -62,6 +63,10 @@ import qualified Data.HashMap.Strict as HashMap
 import Text.Printf
 import Text.PrettyPrint hiding ((<>))
 import Control.Arrow (left)
+#ifdef EVENTLOG
+import Control.Exception (bracket_)
+import Debug.Trace (traceEventIO)
+#endif
 
 -- -----------------------------------------------------------------------------
 -- The environment
@@ -174,6 +179,28 @@ instance Applicative (GenHaxl u) where
 
 -- | Runs a 'Haxl' computation in an 'Env'.
 runHaxl :: Env u -> GenHaxl u a -> IO a
+#ifdef EVENTLOG
+runHaxl env h = do
+  let go !n env (GenHaxl haxl) = do
+        traceEventIO "START computation"
+        ref <- newIORef noRequests
+        e <- haxl env ref
+        traceEventIO "STOP computation"
+        case e of
+          Done a       -> return a
+          Throw e      -> Control.Exception.throw e
+          Blocked cont -> do
+            bs <- readIORef ref
+            writeIORef ref noRequests -- Note [RoundId]
+            traceEventIO "START performFetches"
+            n' <- performFetches n env bs
+            traceEventIO "STOP performFetches"
+            go n' env cont
+  traceEventIO "START runHaxl"
+  r <- go 0 env h
+  traceEventIO "STOP runHaxl"
+  return r
+#else
 runHaxl env (GenHaxl haxl) = do
   ref <- newIORef noRequests
   e <- haxl env ref
@@ -183,8 +210,9 @@ runHaxl env (GenHaxl haxl) = do
     Blocked cont -> do
       bs <- readIORef ref
       writeIORef ref noRequests -- Note [RoundId]
-      performFetches env bs
+      void (performFetches 0 env bs)
       runHaxl env cont
+#endif
 
 -- | Extracts data from the 'Env'.
 env :: (Env u -> a) -> GenHaxl u a
@@ -387,11 +415,12 @@ instance IsString a => IsString (GenHaxl u a) where
 -- | Issues a batch of fetches in a 'RequestStore'. After
 -- 'performFetches', all the requests in the 'RequestStore' are
 -- complete, and all of the 'ResultVar's are full.
-performFetches :: forall u. Env u -> RequestStore u -> IO ()
-performFetches env reqs = do
+performFetches :: forall u. Int -> Env u -> RequestStore u -> IO Int
+performFetches n env reqs = do
   let f = flags env
       sref = statsRef env
       jobs = contents reqs
+      !n' = n + length jobs
 
   t0 <- getCurrentTime
 
@@ -413,7 +442,7 @@ performFetches env reqs = do
       forM_ reqs $ \(BlockedFetch r _) -> putStrLn (show1 r)
 
   let
-    applyFetch (BlockedFetches (reqs :: [BlockedFetch r])) =
+    applyFetch (i, BlockedFetches (reqs :: [BlockedFetch r])) =
       case stateGet (states env) of
         Nothing ->
           return (SyncFetch (mapM_ (setError (const e)) reqs))
@@ -421,9 +450,12 @@ performFetches env reqs = do
                 e = DataSourceError $
                       "data source not initialized: " <> dataSourceName req
         Just state ->
-          return $ wrapFetchInCatch reqs $ fetch state f (userEnv env) reqs
+          return $ wrapFetchInTrace i (length reqs)
+                    (dataSourceName (undefined :: r a))
+                 $ wrapFetchInCatch reqs
+                 $ fetch state f (userEnv env) reqs
 
-  fetches <- mapM applyFetch jobs
+  fetches <- mapM applyFetch $ zip [n..] jobs
 
   times <-
     if report f >= 2
@@ -451,6 +483,7 @@ performFetches env reqs = do
   ifTrace f 1 $
     printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
 
+  return n'
 
 -- Catch exceptions arising from the data source and stuff them into
 -- the appropriate requests.  We don't want any exceptions propagating
@@ -485,6 +518,24 @@ wrapFetchInTimer f = do
          total <- time (f (time inner >>= writeIORef inner_r))
          inner_t <- readIORef inner_r
          writeIORef r (total - inner_t))
+
+wrapFetchInTrace :: Int -> Int -> Text.Text -> PerformFetch -> PerformFetch
+#ifdef EVENTLOG
+wrapFetchInTrace i n dsName f =
+  case f of
+    SyncFetch io -> SyncFetch (wrapF "Sync" io)
+    AsyncFetch fio -> AsyncFetch (wrapF "Async" . fio . unwrapF "Async")
+  where
+    d = Text.unpack dsName
+    wrapF :: String -> IO a -> IO a
+    wrapF ty = bracket_ (traceEventIO $ printf "START %d %s (%d %s)" i d n ty)
+                        (traceEventIO $ printf "STOP %d %s (%d %s)" i d n ty)
+    unwrapF :: String -> IO a -> IO a
+    unwrapF ty = bracket_ (traceEventIO $ printf "STOP %d %s (%d %s)" i d n ty)
+                          (traceEventIO $ printf "START %d %s (%d %s)" i d n ty)
+#else
+wrapFetchInTrace _ _ _ f = f
+#endif
 
 time :: IO () -> IO Microseconds
 time io = microsecs . fst <$> timeIt io
