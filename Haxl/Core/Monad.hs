@@ -44,7 +44,6 @@ import Haxl.Core.Exception
 import Haxl.Core.RequestStore
 import Haxl.Core.Util
 import Haxl.Core.DataCache as DataCache
-import Util.Time
 
 import qualified Data.Text as Text
 import Control.Exception (Exception(..), SomeException)
@@ -538,7 +537,11 @@ wrapFetchInTrace _ _ _ f = f
 #endif
 
 time :: IO () -> IO Microseconds
-time io = microsecs . fst <$> timeIt io
+time io = do
+  t0 <- getCurrentTime
+  io
+  t1 <- getCurrentTime
+  return . microsecs . realToFrac $ t1 `diffUTCTime` t0
 
 microsecs :: Double -> Microseconds
 microsecs t = round (t * 10^(6::Int))
