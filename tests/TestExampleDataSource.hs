@@ -124,16 +124,30 @@ cachedComputationTest = TestCase $ do
 
 dataSourceExceptionTest = TestCase $ do
   env <- testEnv
+
   r <- runHaxl env $ Haxl.try $ countAardvarks "BANG"
-  assertBool "exception" $
+  assertBool "exception1" $
     case r of
       Left (ErrorCall "BANG") -> True
       _ -> False
   r <- runHaxl env $ Haxl.try $ countAardvarks "BANG2"
-  assertBool "exception" $
+  assertBool "exception2" $
     case r of
       Left (ErrorCall "BANG2") -> True
       _ -> False
+
+  -- In this test, BANG3 is an asynchronous exception (ThreadKilled),
+  -- so we should see that instead of the exception on the left.
+  -- Furthermore, it doesn't get caught by Haxl.try, and we have to
+  -- catch it outside of runHaxl.
+  env <- testEnv
+  r <- Control.Exception.try $ runHaxl env $ Haxl.try $
+          (length <$> listWombats 100) + countAardvarks "BANG3"
+  print r
+  assertBool "exception3" $
+    case (r :: Either AsyncException (Either SomeException Int)) of
+       Left ThreadKilled -> True
+       _ -> False
 
 -- Test that we can load the cache from a dumped copy of it, and then dump it
 -- again to get the same result.

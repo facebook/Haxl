@@ -46,9 +46,10 @@ import Haxl.Core.Util
 import Haxl.Core.DataCache as DataCache
 
 import qualified Data.Text as Text
-import Control.Exception (Exception(..), SomeException)
+import Control.Exception (Exception(..), SomeException, SomeAsyncException(..),
+                          AllocationLimitExceeded(..))
 import Control.Monad
-import qualified Control.Exception
+import qualified Control.Exception as Exception
 import Control.Applicative hiding (Const)
 import GHC.Exts (IsString(..))
 #if __GLASGOW_HASKELL__ < 706
@@ -187,7 +188,7 @@ runHaxl env h = do
         traceEventIO "STOP computation"
         case e of
           Done a       -> return a
-          Throw e      -> Control.Exception.throw e
+          Throw e      -> Exception.throw e
           Blocked cont -> do
             bs <- readIORef ref
             writeIORef ref noRequests -- Note [RoundId]
@@ -205,7 +206,7 @@ runHaxl env (GenHaxl haxl) = do
   e <- haxl env ref
   case e of
     Done a       -> return a
-    Throw e      -> Control.Exception.throw e
+    Throw e      -> Exception.throw e
     Blocked cont -> do
       bs <- readIORef ref
       writeIORef ref noRequests -- Note [RoundId]
@@ -264,7 +265,7 @@ unsafeLiftIO m = GenHaxl $ \_env _ref -> Done <$> m
 -- order.  Not to be exposed to user code.
 unsafeToHaxlException :: GenHaxl u a -> GenHaxl u a
 unsafeToHaxlException (GenHaxl m) = GenHaxl $ \env ref -> do
-  r <- m env ref `Control.Exception.catch` \e -> return (Throw e)
+  r <- m env ref `Exception.catch` \e -> return (Throw e)
   case r of
     Blocked c -> return (Blocked (unsafeToHaxlException c))
     other -> return other
@@ -364,15 +365,20 @@ continueFetch req rvar = GenHaxl $ \_env _ref -> do
     Just r -> done r
 
 -- | Transparently provides caching. Useful for datasources that can
--- return immediately, but also caches values.
+-- return immediately, but also caches values.  Exceptions thrown by
+-- the IO operation (except for asynchronous exceptions) are
+-- propagated into the Haxl monad and can be caught by 'catch' and
+-- 'try'.
 cacheResult :: (Request r a)  => r a -> IO a -> GenHaxl u a
 cacheResult req val = GenHaxl $ \env _ref -> do
   cachedResult <- cached env req
   case cachedResult of
     Uncached rvar -> do
-      result <- Control.Exception.try val
+      result <- Exception.try val
       putResult rvar result
-      done result
+      case result of
+        Left e -> do rethrowAsyncExceptions e; done result
+        _other -> done result
     Cached result -> done result
     CachedNotFetched _ -> corruptCache
   where
@@ -383,6 +389,41 @@ cacheResult req val = GenHaxl $ \env _ref -> do
       , " the cache was updated incorrectly, or you're calling"
       , " cacheResult on a query that involves a blocking fetch."
       ]
+
+
+-- We must be careful about turning IO monad exceptions into Haxl
+-- exceptions.  An IO monad exception will normally propagate right
+-- out of runHaxl and terminate the whole computation, whereas a Haxl
+-- exception can get dropped on the floor, if it is on the right of
+-- <*> and the left side also throws, for example.  So turning an IO
+-- monad exception into a Haxl exception is a dangerous thing to do.
+-- In particular, we never want to do it for an asynchronous exception
+-- (AllocationLimitExceeded, ThreadKilled, etc.), because these are
+-- supposed to unconditionally terminate the computation.
+--
+-- There are three places where we take an arbitrary IO monad exception and
+-- turn it into a Haxl exception:
+--
+--  * wrapFetchInCatch.  Here we want to propagate a failure of the
+--    data source to the callers of the data source, but if the
+--    failure came from elsewhere (an asynchronous exception), then we
+--    should just propagate it
+--
+--  * cacheResult (cache the results of IO operations): again,
+--    failures of the IO operation should be visible to the caller as
+--    a Haxl exception, but we exclude asynchronous exceptions from
+--    this.
+
+--  * unsafeToHaxlException: assume the caller knows what they're
+--    doing, and just wrap all exceptions.
+--
+rethrowAsyncExceptions :: SomeException -> IO ()
+rethrowAsyncExceptions e
+  | Just SomeAsyncException{} <- fromException e = Exception.throw e
+  | Just AllocationLimitExceeded{} <- fromException e = Exception.throw e
+    -- AllocationLimitExceeded is not a child of SomeAsyncException,
+    -- but it should be.
+  | otherwise = return ()
 
 -- | Inserts a request/result pair into the cache. Throws an exception
 -- if the request has already been issued, either via 'dataFetch' or
@@ -493,12 +534,14 @@ wrapFetchInCatch :: [BlockedFetch req] -> PerformFetch -> PerformFetch
 wrapFetchInCatch reqs fetch =
   case fetch of
     SyncFetch io ->
-      SyncFetch (io `Control.Exception.catch` handler)
+      SyncFetch (io `Exception.catch` handler)
     AsyncFetch fio ->
-      AsyncFetch (\io -> fio io `Control.Exception.catch` handler)
+      AsyncFetch (\io -> fio io `Exception.catch` handler)
   where
     handler :: SomeException -> IO ()
-    handler e = mapM_ (forceError e) reqs
+    handler e = do
+      rethrowAsyncExceptions e
+      mapM_ (forceError e) reqs
 
     -- Set the exception even if the request already had a result.
     -- Otherwise we could be discarding an exception.
@@ -609,22 +652,33 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
         MemoInProgress round cont
           | round == ref -> return (Blocked (retryMemo req))
           | otherwise    -> run memovar cont env ref
+          -- was blocked in a previous round; run the saved continuation to
+          -- make more progress.
  where
-  -- If we got blocked on this memo previously, this is the continuation:
-  -- just try to evaluate the memo again.  It is guaranteed to be in the
-  -- cache now (perhaps only partially evaluated though).
+  -- If we got blocked on this memo in the current round, this is the
+  -- continuation: just try to evaluate the memo again.  We know it is
+  -- already in the cache (because we just checked), so the computation
+  -- will never be used.
   retryMemo req =
    cachedComputation req (throw (CriticalError "retryMemo"))
 
   -- Run the memoized computation and store the result (complete or
   -- partial) back in the MemoVar afterwards.
+ --
+ -- We don't attempt to catch IO monad exceptions here.  That may seem
+ -- dangerous, because if an IO exception is raised we'll leave the
+ -- MemoInProgress in the MemoVar.  But we always want to just
+ -- propagate an IO monad exception (it should kill the whole runHaxl,
+ -- unless there's a unsafeToHaxlException), so we should never be
+ -- looking at the MemoVar again anyway.  Furthermore, storing the
+ -- exception in the MemoVar is wrong, because that will turn it into
+ -- a Haxl exception (see rethrowAsyncExceptions).
   run memovar cont env ref = do
-    e <- Control.Exception.try $ unHaxl cont env ref
+    e <- unHaxl cont env ref
     case e of
-      Left ex -> complete memovar (Left ex)
-      Right (Done a) -> complete memovar (Right a)
-      Right (Throw e) -> complete memovar (Left e)
-      Right (Blocked cont) -> do
+      Done a -> complete memovar (Right a)
+      Throw e -> complete memovar (Left e)
+      Blocked cont -> do
         writeIORef memovar (MemoInProgress ref cont)
         return (Blocked (retryMemo req))
 
@@ -632,7 +686,6 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
   complete memovar r = do
     writeIORef memovar (MemoDone r)
     done r
-
 
 -- | Lifts an 'Either' into either 'Throw' or 'Done'.
 done :: Either SomeException a -> IO (Result u a)

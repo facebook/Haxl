@@ -24,6 +24,8 @@ import Haxl.Core
 
 import Data.Typeable
 import Data.Hashable
+import Control.Concurrent
+import System.IO
 
 -- Here is an example minimal data source.  Our data source will have
 -- two requests:
@@ -134,6 +136,9 @@ fetch1 (BlockedFetch (CountAardvarks "BANG2") m) = do
   putSuccess m 1
   error "BANG2" -- the exception is propagated even if we have already
                 -- put the result with putSuccess
+fetch1 (BlockedFetch (CountAardvarks "BANG3") _) = do
+  hPutStr stderr "BANG3"
+  killThread =<< myThreadId -- an asynchronous exception
 fetch1 (BlockedFetch (CountAardvarks str) m) =
   putSuccess m (length (filter (== 'a') str))
 fetch1 (BlockedFetch (ListWombats a) r) =
