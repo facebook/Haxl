@@ -8,7 +8,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Facebook, Inc.
 maintainer:          The Haxl Team <haxl-team@fb.com>
-copyright:           2014 (C) 2014 Facebook, Inc.
+copyright:           Copyright (c) 2014-present, Facebook, Inc.
 category:            Concurrency
 build-type:          Simple
 stability:           alpha
