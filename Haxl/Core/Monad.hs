@@ -46,8 +46,7 @@ import Haxl.Core.Util
 import Haxl.Core.DataCache as DataCache
 
 import qualified Data.Text as Text
-import Control.Exception (Exception(..), SomeException, SomeAsyncException(..),
-                          AllocationLimitExceeded(..))
+import Control.Exception (Exception(..), SomeException, SomeAsyncException(..))
 import Control.Monad
 import qualified Control.Exception as Exception
 import Control.Applicative hiding (Const)
@@ -420,9 +419,6 @@ cacheResult req val = GenHaxl $ \env _ref -> do
 rethrowAsyncExceptions :: SomeException -> IO ()
 rethrowAsyncExceptions e
   | Just SomeAsyncException{} <- fromException e = Exception.throw e
-  | Just AllocationLimitExceeded{} <- fromException e = Exception.throw e
-    -- AllocationLimitExceeded is not a child of SomeAsyncException,
-    -- but it should be.
   | otherwise = return ()
 
 -- | Inserts a request/result pair into the cache. Throws an exception
