@@ -5,6 +5,7 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -35,7 +36,10 @@ module Haxl.Prelude (
 
     -- * Extra Monad and Applicative things
     Applicative(..),
-    mapM, mapM_, sequence, sequence_, (<$>), filterM, foldM,
+#if __GLASGOW_HASKELL__ < 710
+    (<$>),
+#endif
+    mapM, mapM_, sequence, sequence_, filterM, foldM,
     forM, forM_,
     foldl', sort,
     Monoid(..),
@@ -71,7 +75,9 @@ import Data.Text (Text)
 import Data.Traversable hiding (forM, mapM, sequence)
 import GHC.Exts (IsString(..))
 import Prelude hiding (mapM, mapM_, sequence, sequence_)
+#if __GLASGOW_HASKELL__ < 710
 import Data.Monoid
+#endif
 import Data.Maybe
 import Control.Exception (fromException)
 

@@ -5,6 +5,7 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -25,7 +26,9 @@ import Unsafe.Coerce
 import qualified Data.HashMap.Strict as HashMap
 import Data.Typeable.Internal
 import Data.Maybe
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative hiding (empty)
+#endif
 import Control.Exception
 
 import Haxl.Core.Types
