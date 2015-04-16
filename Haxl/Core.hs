@@ -8,13 +8,15 @@
 -- | Everything needed to define data sources and to invoke the
 -- engine. This module should not be imported by user code.
 module Haxl.Core
-  ( module Haxl.Core.Monad
+  ( module Haxl.Core.Memo
+  , module Haxl.Core.Monad
   , module Haxl.Core.Types
   , module Haxl.Core.Exception
   , module Haxl.Core.StateStore
   , module Haxl.Core.Show1
   ) where
 
+import Haxl.Core.Memo
 import Haxl.Core.Monad hiding (unsafeLiftIO {- Ask nicely to get this! -})
 import Haxl.Core.Types
 import Haxl.Core.Exception

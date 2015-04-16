@@ -31,6 +31,7 @@ tests = TestList [
   TestLabel "orderTest" orderTest,
   TestLabel "preCacheTest" preCacheTest,
   TestLabel "cachedComputationTest" cachedComputationTest,
+  TestLabel "memoTest" memoTest,
   TestLabel "dataSourceExceptionTest" dataSourceExceptionTest,
   TestLabel "dumpCacheAsHaskell" dumpCacheTest]
 
@@ -118,6 +119,23 @@ cachedComputationTest = TestCase $ do
   r <- runHaxl env' $ x + x + countAardvarks "baba"
 
   assertEqual "cachedComputationTest1" 62 r
+
+  stats <- readIORef (statsRef env)
+  assertEqual "fetches" 3 (numFetches stats)
+
+-- Pretend CountAardvarks is a request computed by some Haxl code
+memoTest = TestCase $ do
+  env <- testEnv
+  let env' = env { flags = (flags env){trace = 3} }
+
+  let x = memo (CountAardvarks "ababa") $ do
+        a <- length <$> listWombats 10
+        b <- length <$> listWombats 20
+        return (a + b)
+
+  r <- runHaxl env' $ x + x + countAardvarks "baba"
+
+  assertEqual "memoTest1" 62 r
 
   stats <- readIORef (statsRef env)
   assertEqual "fetches" 3 (numFetches stats)

@@ -32,7 +32,7 @@ module Haxl.Prelude (
     module Prelude,
 
     -- * Haxl and Fetching data
-    GenHaxl, dataFetch, DataSource,
+    GenHaxl, dataFetch, DataSource, memo,
 
     -- * Extra Monad and Applicative things
     Applicative(..),
@@ -66,6 +66,7 @@ module Haxl.Prelude (
 
 import Haxl.Core.Types
 import Haxl.Core.Exception
+import Haxl.Core.Memo
 import Haxl.Core.Monad
 
 import Control.Applicative
