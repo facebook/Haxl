@@ -2,13 +2,11 @@
 module BatchTests (tests) where
 
 import TestTypes
+import TestUtils
 import MockTAO
 
 import Control.Applicative
-import Data.IORef
-import Data.Aeson
 import Test.HUnit
-import qualified Data.HashMap.Strict as HashMap
 
 import Haxl.Core
 
@@ -16,51 +14,6 @@ import Prelude()
 import Haxl.Prelude
 
 -- -----------------------------------------------------------------------------
-
-testinput :: Object
-testinput = HashMap.fromList [
-  "A" .= (1 :: Int),
-  "B" .= (2 :: Int),
-  "C" .= (3 :: Int),
-  "D" .= (4 :: Int) ]
-
-makeTestEnv :: IO (Env UserEnv)
-makeTestEnv = do
-  tao <- MockTAO.initGlobalState
-  let st = stateSet tao stateEmpty
-  initEnv st testinput
-
-expectRoundsWithEnv
-  :: (Eq a, Show a) => Int -> a -> Haxl a -> Env UserEnv -> Assertion
-expectRoundsWithEnv n result haxl env = do
-  a <- runHaxl env haxl
-  assertEqual "result" result a
-  stats <- readIORef (statsRef env)
-  assertEqual "rounds" n (numRounds stats)
-
-expectRounds :: (Eq a, Show a) => Int -> a -> Haxl a -> Assertion
-expectRounds n result haxl = do
-  env <- makeTestEnv
-  expectRoundsWithEnv n result haxl env
-
-expectFetches :: (Eq a, Show a) => Int -> Haxl a -> Assertion
-expectFetches n haxl = do
-  env <- makeTestEnv
-  _ <- runHaxl env haxl
-  stats <- readIORef (statsRef env)
-  assertEqual "fetches" n (numFetches stats)
-
-friendsOf :: Id -> Haxl [Id]
-friendsOf = assocRangeId2s friendsAssoc
-
-id1 :: Haxl Id
-id1 = lookupInput "A"
-
-id2 :: Haxl Id
-id2 = lookupInput "B"
-
-id3 :: Haxl Id
-id3 = lookupInput "C"
 
 --
 -- Test batching over multiple arguments in liftA2
@@ -179,24 +132,6 @@ cacheReuse = do
   -- ensure no more data fetching rounds needed
   expectRoundsWithEnv 0 12 batching7_ env2
 
-tests = TestList
-  [ TestLabel "batching1" $ TestCase batching1
-  , TestLabel "batching2" $ TestCase batching2
-  , TestLabel "batching3" $ TestCase batching3
-  , TestLabel "batching4" $ TestCase batching4
-  , TestLabel "batching5" $ TestCase batching5
-  , TestLabel "batching6" $ TestCase batching6
-  , TestLabel "batching7" $ TestCase batching7
-  , TestLabel "batching8" $ TestCase batching8
-  , TestLabel "caching1" $ TestCase caching1
-  , TestLabel "caching2" $ TestCase caching2
-  , TestLabel "caching3" $ TestCase caching3
-  , TestLabel "CacheReuse" $ TestCase cacheReuse
-  , TestLabel "exceptionTest1" $ TestCase exceptionTest1
-  , TestLabel "exceptionTest2" $ TestCase exceptionTest2
-  , TestLabel "deterministicExceptions" $ TestCase deterministicExceptions
-  ]
-
 exceptionTest1 = expectRounds 1 []
   $ withDefault [] $ friendsOf 101
 
@@ -224,3 +159,21 @@ deterministicExceptions = do
     case r of
      Left (NotFound "xxx") -> True
      _ -> False
+
+tests = TestList
+  [ TestLabel "batching1" $ TestCase batching1
+  , TestLabel "batching2" $ TestCase batching2
+  , TestLabel "batching3" $ TestCase batching3
+  , TestLabel "batching4" $ TestCase batching4
+  , TestLabel "batching5" $ TestCase batching5
+  , TestLabel "batching6" $ TestCase batching6
+  , TestLabel "batching7" $ TestCase batching7
+  , TestLabel "batching8" $ TestCase batching8
+  , TestLabel "caching1" $ TestCase caching1
+  , TestLabel "caching2" $ TestCase caching2
+  , TestLabel "caching3" $ TestCase caching3
+  , TestLabel "CacheReuse" $ TestCase cacheReuse
+  , TestLabel "exceptionTest1" $ TestCase exceptionTest1
+  , TestLabel "exceptionTest2" $ TestCase exceptionTest2
+  , TestLabel "deterministicExceptions" $ TestCase deterministicExceptions
+  ]

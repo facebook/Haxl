@@ -12,6 +12,7 @@ module MockTAO (
     initGlobalState,
     assocRangeId2s,
     friendsAssoc,
+    friendsOf,
   ) where
 
 import Data.Hashable
@@ -72,3 +73,6 @@ friendsAssoc = 167367433327742
 
 assocRangeId2s :: Id -> Id -> Haxl [Id]
 assocRangeId2s a b = dataFetch (AssocRangeId2s a b)
+
+friendsOf :: Id -> Haxl [Id]
+friendsOf = assocRangeId2s friendsAssoc

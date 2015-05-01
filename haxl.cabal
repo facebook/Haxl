@@ -96,6 +96,7 @@ test-suite test
     MockTAO
     TestExampleDataSource
     TestTypes
+    TestUtils
 
   type:
     exitcode-stdio-1.0
