@@ -188,7 +188,7 @@ logicErrorFromException x = do
 -- | Generic \"critical\" exception. Something internal is
 -- borked. Panic.
 data CriticalError = CriticalError Text
-  deriving (Typeable, Show)
+  deriving (Typeable, Eq, Show)
 
 instance Exception CriticalError where
   toException   = internalErrorToException
@@ -196,7 +196,7 @@ instance Exception CriticalError where
 
 -- | Generic \"something was not found\" exception.
 data NotFound = NotFound Text
-  deriving (Typeable, Show)
+  deriving (Typeable, Eq, Show)
 
 instance Exception NotFound where
   toException = logicErrorToException
@@ -204,7 +204,7 @@ instance Exception NotFound where
 
 -- | Generic \"something had the wrong type\" exception.
 data UnexpectedType = UnexpectedType Text
-  deriving (Typeable, Show)
+  deriving (Typeable, Eq, Show)
 
 instance Exception UnexpectedType where
   toException = logicErrorToException
@@ -212,7 +212,7 @@ instance Exception UnexpectedType where
 
 -- | Generic \"input list was empty\" exception.
 data EmptyList = EmptyList Text
-  deriving (Typeable,Show)
+  deriving (Typeable, Eq, Show)
 
 instance Exception EmptyList where
   toException = logicErrorToException
@@ -220,7 +220,7 @@ instance Exception EmptyList where
 
 -- | Generic \"Incorrect assumptions about JSON data\" exception.
 data JSONError = JSONError Text
-  deriving (Typeable, Show)
+  deriving (Typeable, Eq, Show)
 
 instance Exception JSONError where
   toException = logicErrorToException
@@ -228,7 +228,7 @@ instance Exception JSONError where
 
 -- | Generic \"passing some invalid parameter\" exception.
 data InvalidParameter = InvalidParameter Text
-  deriving (Typeable, Show)
+  deriving (Typeable, Eq, Show)
 
 instance Exception InvalidParameter where
   toException = logicErrorToException
