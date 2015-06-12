@@ -95,6 +95,12 @@ batching8_ = if (c .== 0) .|| (a .> 0 .&& b .> 0) then a+b else 0
   b = length <$> (id2 >>= friendsOf)
   c = length <$> (id3 >>= friendsOf)
 
+-- (>>) should batch, so we expect one round
+batching9 = expectRounds 1 6 batching9_
+
+batching9_ :: Haxl Int
+batching9_ = (id1 >>= friendsOf) >> (length <$> (id2 >>= friendsOf))
+
 --
 -- Test data caching, numFetches
 --
@@ -169,6 +175,7 @@ tests = TestList
   , TestLabel "batching6" $ TestCase batching6
   , TestLabel "batching7" $ TestCase batching7
   , TestLabel "batching8" $ TestCase batching8
+  , TestLabel "batching9" $ TestCase batching9
   , TestLabel "caching1" $ TestCase caching1
   , TestLabel "caching2" $ TestCase caching2
   , TestLabel "caching3" $ TestCase caching3

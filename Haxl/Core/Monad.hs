@@ -161,6 +161,9 @@ instance Monad (GenHaxl u) where
       Throw e      -> return (Throw e)
       Blocked cont -> return (Blocked (cont >>= k))
 
+  -- We really want the Applicative version of >>
+  (>>) = (*>)
+
 instance Functor (GenHaxl u) where
   fmap f m = pure f <*> m
 
