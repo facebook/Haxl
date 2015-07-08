@@ -47,6 +47,9 @@ instance StateKey TAOReq where
 instance DataSourceName TAOReq where
   dataSourceName _ = "MockTAO"
 
+instance CacheableSource TAOReq where
+  cacheSize _ = Nothing
+
 instance DataSource UserEnv TAOReq where
   fetch _state _flags _user bfs = SyncFetch $ mapM_ doFetch bfs
 

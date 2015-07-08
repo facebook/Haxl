@@ -38,12 +38,14 @@ library
     text >= 1.1.0.1 && < 1.3,
     time >= 1.4 && < 1.6,
     unordered-containers == 0.2.*,
-    vector == 0.10.*
+    vector == 0.10.*,
+    psqueues >= 0.2.0.2
 
   exposed-modules:
     Haxl.Core,
     Haxl.Core.DataCache,
     Haxl.Core.Exception,
+    Haxl.Core.FiniteCache,
     Haxl.Core.Monad,
     Haxl.Core.RequestStore,
     Haxl.Core.StateStore,

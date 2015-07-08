@@ -302,13 +302,16 @@ data CacheResult a
 -- | Checks the data cache for the result of a request.
 cached :: (Request r a) => Env u -> r a -> IO (CacheResult a)
 cached env req = do
-  cache <- readIORef (cacheRef env)
-  let
-    do_fetch = do
-      rvar <- newEmptyResult
-      writeIORef (cacheRef env) $! DataCache.insert req rvar cache
-      return (Uncached rvar)
-  case DataCache.lookup req cache of
+  let do_fetch = do
+        rvar <- newEmptyResult
+        atomicModifyIORef' (cacheRef env) $ \ cache -> (DataCache.insert req rvar cache, ())
+        return $ Uncached rvar
+      lookup cache =
+        case DataCache.lookup req cache of
+          Nothing -> (cache, Nothing)
+          Just (r, cache') -> (cache', Just r)
+  cachedRVar <- atomicModifyIORef' (cacheRef env) lookup
+  case cachedRVar of
     Nothing -> do_fetch
     Just rvar -> do
       mb <- tryReadResult rvar
@@ -648,12 +651,16 @@ cachedComputation
    :: forall req u a. (Request req a)
    => req a -> GenHaxl u a -> GenHaxl u a
 cachedComputation req haxl = GenHaxl $ \env ref -> do
-  cache <- readIORef (memoRef env)
-  case DataCache.lookup req cache of
-    Nothing -> do
-      memovar <- newIORef (MemoInProgress ref haxl)
-      writeIORef (memoRef env) $! DataCache.insert req (MemoVar memovar) cache
-      run memovar haxl env ref
+  let do_calc = do
+        memovar <- newIORef (MemoInProgress ref haxl)
+        atomicModifyIORef' (memoRef env) $ \ cache -> (DataCache.insert req (MemoVar memovar) cache, ())
+        run memovar haxl env ref
+      lookup cache = case DataCache.lookup req cache of
+          Nothing -> (cache, Nothing)
+          Just (r, cache') -> (cache', Just r)
+  cachedMemoVar <- atomicModifyIORef' (memoRef env) lookup
+  case cachedMemoVar of
+    Nothing -> do_calc
     Just (MemoVar memovar) -> do
       status <- readIORef memovar
       case status of

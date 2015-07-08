@@ -21,6 +21,8 @@ deriving instance Show (TestReq a)
 instance Hashable (TestReq a) where
   hashWithSalt salt (Req i) = hashWithSalt salt i
 
+instance CacheableSource TestReq where
+  cacheSize _ = Nothing
 
 dcSoundnessTest :: Test
 dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
@@ -31,27 +33,30 @@ dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
           DataCache.insert (Req 2 :: TestReq String) m2 $
           DataCache.empty
 
+      lookup r c = case DataCache.lookup r c of
+        Nothing -> Nothing
+        Just (res, _) -> Just res
   -- "Req 1" has a result of type Int, so if we try to look it up
   -- with a result of type String, we should get Nothing, not a crash.
-  r <- mapM takeResult $ DataCache.lookup (Req 1) cache
+  r <- mapM takeResult $ lookup (Req 1) cache
   assertBool "dcSoundness1" $
     case r :: Maybe (Either SomeException String) of
      Nothing -> True
      _something_else -> False
 
-  r <- mapM takeResult $ DataCache.lookup (Req 1) cache
+  r <- mapM takeResult $ lookup (Req 1) cache
   assertBool "dcSoundness2" $
     case r :: Maybe (Either SomeException Int) of
      Just (Right 1) -> True
      _something_else -> False
 
-  r <- mapM takeResult $ DataCache.lookup (Req 2) cache
+  r <- mapM takeResult $ lookup (Req 2) cache
   assertBool "dcSoundness3" $
     case r :: Maybe (Either SomeException String) of
       Just (Right "hello") -> True
       _something_else -> False
 
-  r <- mapM takeResult $ DataCache.lookup (Req 2) cache
+  r <- mapM takeResult $ lookup (Req 2) cache
   assertBool "dcSoundness4" $
     case r :: Maybe (Either SomeException Int) of
       Nothing -> True
