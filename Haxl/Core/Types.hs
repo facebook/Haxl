@@ -223,8 +223,14 @@ class DataSourceName req where
 
 class CacheableSource req where
   -- | Maximum number of items of a particular request in the cache.
-  -- If 'Nothing', the cache is unbounded for this request type.
+  --
+  -- If 'Nothing', the cache is unbounded for this request type. This is the default.
+  --
+  -- Please note that the cache in Haxl, in addition to boosting
+  -- performance, also guarantees consistency and replayability when
+  -- data sources change. Choosing a bounded cache sacrifices this.
   cacheSize :: req a -> Maybe Int
+  cacheSize _ = Nothing
 
 -- The 'Show1' class is a workaround for the fact that we can't write
 -- @'Show' (req a)@ as a superclass of 'DataSource', without also

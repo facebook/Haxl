@@ -21,8 +21,7 @@ deriving instance Show (TestReq a)
 instance Hashable (TestReq a) where
   hashWithSalt salt (Req i) = hashWithSalt salt i
 
-instance CacheableSource TestReq where
-  cacheSize _ = Nothing
+instance CacheableSource TestReq
 
 dcSoundnessTest :: Test
 dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
