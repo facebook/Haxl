@@ -30,17 +30,23 @@ instance Hashable (TestReq a) where
   hashWithSalt salt (ReqDouble i) = hashWithSalt salt (1::Int, i)
   hashWithSalt salt (ReqBool i) = hashWithSalt salt (2::Int, i)
 
+instance CacheableSource TestReq
+
 main = do
   [n] <- fmap (fmap read) getArgs
   t0 <- getCurrentTime
   let
+     lookup r c = case DataCache.lookup r c of
+       Nothing -> Nothing
+       Just (res, _) -> Just res
+
      f 0  !cache = return cache
      f !n !cache = do
        m <- newResult 0
        f (n-1) (DataCache.insert (ReqInt n) m cache)
   --
   cache <- f n DataCache.empty
-  let m = DataCache.lookup (ReqInt (n `div` 2)) cache
+  let m = lookup (ReqInt (n `div` 2)) cache
   print =<< mapM takeResult m
   t1 <- getCurrentTime
   printf "insert: %.2fs\n" (realToFrac (t1 `diffUTCTime` t0) :: Double)
