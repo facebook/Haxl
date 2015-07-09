@@ -244,8 +244,6 @@ type Request req a =
   , Hashable (req a)
   , Typeable (req a)
     -- See comment at DataCache.insert
-  , Typeable req
-  , Typeable a
   , Show (req a)
   , Show a
   , CacheableSource req

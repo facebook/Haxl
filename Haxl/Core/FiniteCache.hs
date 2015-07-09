@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns              #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
@@ -19,12 +20,19 @@ der Jeugt, http://jaspervdj.be/posts/2015-02-24-lru-cache.html.
 -}
 
 module Haxl.Core.FiniteCache
+       ( FiniteCache
+       , singleton
+       , mergeSingleton
+       , lookup
+       , toList)
        where
 
+import           Control.Exception (assert)
 import           Data.Hashable
-import           Data.Int      (Int64)
-import qualified Data.IntPSQ   as IntPSQ
+import           Data.Int          (Int64)
+import qualified Data.IntPSQ       as IntPSQ
 import           Data.Maybe
+import           Prelude           hiding (lookup)
 
 type Priority = Int64
 
@@ -34,7 +42,7 @@ data PV k v = PV !Priority !k !v
 
 -- | A hash bucket. Values with the same hash are stored in a list,
 -- where the value of highest priority is always at the front.
-data Bucket k v = Bucket [PV k v]
+data Bucket k v = Bucket ![PV k v]
                   deriving Show
 
 data FiniteCache k v =
@@ -62,6 +70,28 @@ empty capacity
                 , cTick = 0
                 , cQueue = IntPSQ.empty
                 }
+
+-- | A 'FiniteCache' with only one element.
+singleton :: (Hashable k, Eq k) => Maybe Int -> k -> v -> FiniteCache k v
+singleton capacity k v = insert k v $ empty capacity
+
+-- | This is an insert, where the element to be inserted is given as a singleton.
+--
+-- This is needed in DataCache in order to insert an element while
+-- only searching through the outer HashMap once, via insertWith.
+mergeSingleton :: (Hashable k, Eq k)
+                  => FiniteCache k v
+                  -- ^ contains a single element ...
+                  -> FiniteCache k v
+                  -- ^ ... which is inserted in this cache.
+                  -> FiniteCache k v
+mergeSingleton new old =
+-- It is a bit awkward that the order of the arguments has to match
+-- with the order in which HashMap.insertWith expects, but I don't
+-- know a better solution than this assert.
+  assert ((IntPSQ.size . cQueue) new == 1) $
+    let (Just (_, _, Bucket [PV _ k v])) = IntPSQ.findMin (cQueue new)
+    in insert k v old
 
 -- | Delete the value with minimal priority.
 deleteMin :: FiniteCache k v -> FiniteCache k v
@@ -100,7 +130,7 @@ insert :: (Hashable k, Eq k)
           -> v
           -> FiniteCache k v
           -> FiniteCache k v
-insert k v FiniteCache {..} =
+insert !k !v FiniteCache {..} =
   let (cSize', cQueue') = IntPSQ.alter f (hash k) cQueue
   in trim FiniteCache { cCapacity = cCapacity
                       , cSize = cSize'

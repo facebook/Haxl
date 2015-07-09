@@ -61,12 +61,7 @@ empty = DataCache HashMap.empty
 
 -- | Inserts a request-result pair into the 'DataCache'.
 insert
-  :: forall req res a .
-     -- TODO: For some reason, I need to impose Typeable a and
-     -- Typeable req, otherwise the (typeOf req) in
-     -- HashMap.lookupDefault will not pass the type-checker. I'd like
-     -- to understand what the difference to HashMap.insertWith is.
-     (Hashable (req a), Typeable (req a), Eq (req a), Show (req a), Show a, Typeable a, Typeable req, CacheableSource req)
+  :: (Hashable (req a), Typeable (req a), Eq (req a), Show (req a), Show a, CacheableSource req)
   => req a
   -- ^ Request
   -> res a
@@ -75,12 +70,11 @@ insert
   -> DataCache res
 
 insert req result (DataCache m) =
-  let sc = HashMap.lookupDefault
-             (SubCache (FiniteCache.empty (cacheSize req) :: FiniteCache (req a) (res a)))
-             (typeOf req) m
-      sc' = case sc of
-        SubCache c -> SubCache $ FiniteCache.insert (unsafeCoerce req) (unsafeCoerce result) c
-  in DataCache $ HashMap.insert (typeOf req) sc' m
+  DataCache $
+    HashMap.insertWith fn (typeOf req)
+                       (SubCache $ FiniteCache.singleton (cacheSize req) req result) m
+  where
+    fn (SubCache new) (SubCache old) = SubCache (unsafeCoerce new `FiniteCache.mergeSingleton` old)
 
 -- | Looks up the cached result of a request.
 lookup
