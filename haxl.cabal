@@ -63,12 +63,12 @@ library
     Haxl.Core,
     Haxl.Core.DataCache,
     Haxl.Core.Exception,
+    Haxl.Core.Memo,
     Haxl.Core.Monad,
     Haxl.Core.RequestStore,
     Haxl.Core.StateStore,
     Haxl.Core.Show1,
     Haxl.Core.Types,
-    Haxl.Core.Memo,
     Haxl.Prelude
 
   other-modules:
