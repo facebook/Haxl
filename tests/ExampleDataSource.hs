@@ -83,6 +83,8 @@ instance StateKey ExampleReq where
 instance DataSourceName ExampleReq where
   dataSourceName _ = "ExampleDataSource"
 
+instance CacheableSource ExampleReq
+
 -- Next we need to define an instance of DataSource:
 
 instance DataSource u ExampleReq where

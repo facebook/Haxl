@@ -44,6 +44,7 @@ module Haxl.Core.Types (
   -- * Data fetching
   DataSource(..),
   DataSourceName(..),
+  CacheableSource(..),
   Request,
   BlockedFetch(..),
   PerformFetch(..),
@@ -220,6 +221,17 @@ class DataSourceName req where
   -- take a dummy request.
   dataSourceName :: req a -> Text
 
+class CacheableSource req where
+  -- | Maximum number of items of a particular request in the cache.
+  --
+  -- If 'Nothing', the cache is unbounded for this request type. This is the default.
+  --
+  -- Please note that the cache in Haxl, in addition to boosting
+  -- performance, also guarantees consistency and replayability when
+  -- data sources change. Choosing a bounded cache sacrifices this.
+  cacheSize :: req a -> Maybe Int
+  cacheSize _ = Nothing
+
 -- The 'Show1' class is a workaround for the fact that we can't write
 -- @'Show' (req a)@ as a superclass of 'DataSource', without also
 -- parameterizing 'DataSource' over @a@, which is a pain (I tried
@@ -231,8 +243,10 @@ type Request req a =
   ( Eq (req a)
   , Hashable (req a)
   , Typeable (req a)
+    -- See comment at DataCache.insert
   , Show (req a)
   , Show a
+  , CacheableSource req
   )
 
 -- | A data source can fetch data in one of two ways.
