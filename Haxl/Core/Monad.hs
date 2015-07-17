@@ -56,6 +56,7 @@ import Control.Exception (AllocationLimitExceeded(..))
 import Control.Monad
 import qualified Control.Exception as Exception
 import Control.Applicative hiding (Const)
+import Control.DeepSeq
 import GHC.Exts (IsString(..))
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
@@ -526,7 +527,7 @@ performFetches n env reqs = do
   let roundtime = realToFrac (diffUTCTime t1 t0) :: Double
 
   ifReport f 1 $
-    modifyIORef' sref $ \(Stats rounds) ->
+    modifyIORef' sref $ \(Stats rounds) -> roundstats `deepseq`
       Stats (RoundStats (microsecs roundtime) dsroundstats: rounds)
 
   ifTrace f 1 $
