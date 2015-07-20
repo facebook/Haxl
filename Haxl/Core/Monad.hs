@@ -20,7 +20,7 @@
 module Haxl.Core.Monad (
     -- * The monad
     GenHaxl (..), runHaxl,
-    env,
+    env, withEnv,
 
     -- * Env
     Env(..), caches, initEnvWithData, initEnv, emptyEnv,
@@ -226,6 +226,16 @@ runHaxl env (GenHaxl haxl) = do
 -- | Extracts data from the 'Env'.
 env :: (Env u -> a) -> GenHaxl u a
 env f = GenHaxl $ \env _ref -> return (Done (f env))
+
+-- | Returns a version of the Haxl computation which always uses the
+-- provided 'Env', ignoring the one specified by 'runHaxl'.
+withEnv :: Env u -> GenHaxl u a -> GenHaxl u a
+withEnv newEnv (GenHaxl m) = GenHaxl $ \_env ref -> do
+  r <- m newEnv ref
+  case r of
+    Done a -> return (Done a)
+    Throw e -> return (Throw e)
+    Blocked k -> return (Blocked (withEnv newEnv k))
 
 -- -----------------------------------------------------------------------------
 -- Exceptions
