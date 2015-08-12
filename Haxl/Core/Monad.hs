@@ -61,10 +61,12 @@ import GHC.Exts (IsString(..))
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif
+import Data.Hashable
 import Data.IORef
 import Data.List
 import Data.Monoid
 import Data.Time
+import Data.Typeable
 import qualified Data.HashMap.Strict as HashMap
 import Text.Printf
 import Text.PrettyPrint hiding ((<>))
@@ -659,14 +661,19 @@ runHaxl).
 -- of 'dumpCacheAsHaskell'.
 --
 cachedComputation
-   :: forall req u a. (Request req a)
+   :: forall req u a.
+      (Eq (req a)
+      , Hashable (req a)
+      , Typeable (req a))
    => req a -> GenHaxl u a -> GenHaxl u a
+
 cachedComputation req haxl = GenHaxl $ \env ref -> do
   cache <- readIORef (memoRef env)
   case DataCache.lookup req cache of
     Nothing -> do
       memovar <- newIORef (MemoInProgress ref haxl)
-      writeIORef (memoRef env) $! DataCache.insert req (MemoVar memovar) cache
+      writeIORef (memoRef env) $!
+        DataCache.insertNotShowable req (MemoVar memovar) cache
       run memovar haxl env ref
     Just (MemoVar memovar) -> do
       status <- readIORef memovar

@@ -18,22 +18,21 @@ import Haxl.Core.Monad (GenHaxl, cachedComputation)
 -- every two calls @memo key haxl@, if they have the same @key@ then
 -- they compute the same result.
 memo
-  :: (Show a, Typeable a, Typeable k, Hashable k, Eq k, Show k)
+  :: (Typeable a, Typeable k, Hashable k, Eq k)
   => k -> GenHaxl u a -> GenHaxl u a
 memo key = cachedComputation (MemoKey key)
 
 {-# RULES "memo/Text"
-  memo = memoText :: (Typeable a, Show a) => Text -> GenHaxl u a -> GenHaxl u a
+  memo = memoText :: (Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
  #-}
 
 {-# NOINLINE memo #-}
 
 data MemoKey k a where
-  MemoKey :: (Typeable k, Hashable k, Eq k, Show k) => k -> MemoKey k a
+  MemoKey :: (Typeable k, Hashable k, Eq k) => k -> MemoKey k a
   deriving Typeable
 
 deriving instance Eq (MemoKey k a)
-deriving instance Show (MemoKey k a)
 
 instance Hashable (MemoKey k a) where
   hashWithSalt s (MemoKey t) = hashWithSalt s t
@@ -51,7 +50,7 @@ deriving instance Show (MemoTextKey a)
 instance Hashable (MemoTextKey a) where
   hashWithSalt s (MemoText t) = hashWithSalt s t
 
-memoText :: (Show a, Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
+memoText :: (Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
 memoText key = cachedComputation (MemoText key)
 
 -- | A memo key derived from a 128-bit MD5 hash.  Do not use this directly,

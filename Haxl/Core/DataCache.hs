@@ -15,6 +15,7 @@ module Haxl.Core.DataCache
   ( DataCache
   , empty
   , insert
+  , insertNotShowable
   , lookup
   , showCache
   ) where
@@ -47,8 +48,8 @@ newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
 -- This works well because we only have to store the dictionaries for
 -- 'Hashable' and 'Eq' once per request type.
 data SubCache res =
-  forall req a . (Hashable (req a), Eq (req a), Show (req a), Show a) =>
-       SubCache ! (HashMap (req a) (res a))
+  forall req a . (Hashable (req a), Eq (req a)) =>
+       SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
        -- NB. the inner HashMap is strict, to avoid building up
        -- a chain of thunks during repeated insertions.
 
@@ -67,12 +68,35 @@ insert
   -> DataCache res
 
 insert req result (DataCache m) =
-      DataCache $
-        HashMap.insertWith fn (typeOf req)
-                              (SubCache (HashMap.singleton req result)) m
+  DataCache $
+    HashMap.insertWith fn (typeOf req)
+       (SubCache show show (HashMap.singleton req result)) m
   where
-    fn (SubCache new) (SubCache old) =
-        SubCache (unsafeCoerce new `HashMap.union` old)
+    fn (SubCache _ _ new) (SubCache showReq showRes old) =
+      SubCache showReq showRes (unsafeCoerce new `HashMap.union` old)
+
+-- | Inserts a request-result pair into the 'DataCache', without
+-- requiring Show instances of the request or the result.  The cache
+-- cannot be subsequently used with `showCache`.
+insertNotShowable
+  :: (Hashable (req a), Typeable (req a), Eq (req a))
+  => req a
+  -- ^ Request
+  -> res a
+  -- ^ Result
+  -> DataCache res
+  -> DataCache res
+
+insertNotShowable req result (DataCache m) =
+  DataCache $
+    HashMap.insertWith fn (typeOf req)
+       (SubCache notShowable notShowable (HashMap.singleton req result)) m
+  where
+    fn (SubCache _ _ new) (SubCache showReq showRes old) =
+      SubCache showReq showRes (unsafeCoerce new `HashMap.union` old)
+
+notShowable :: a
+notShowable = error "insertNotShowable"
 
 -- | Looks up the cached result of a request.
 lookup
@@ -85,12 +109,13 @@ lookup
 lookup req (DataCache m) =
       case HashMap.lookup (typeOf req) m of
         Nothing -> Nothing
-        Just (SubCache sc) ->
+        Just (SubCache _ _ sc) ->
            unsafeCoerce (HashMap.lookup (unsafeCoerce req) sc)
 
 -- | Dumps the contents of the cache, with requests and responses
 -- converted to 'String's using 'show'.  The entries are grouped by
--- 'TypeRep'.
+-- 'TypeRep'.  Note that this will fail if 'insertNotShowable' has
+-- been used to insert any entries.
 --
 showCache
   :: DataCache ResultVar
@@ -101,16 +126,14 @@ showCache (DataCache cache) = mapM goSubCache (HashMap.toList cache)
   goSubCache
     :: (TypeRep,SubCache ResultVar)
     -> IO (TypeRep,[(String, Either SomeException String)])
-  goSubCache (ty, SubCache hmap) = do
+  goSubCache (ty, SubCache showReq showRes hmap) = do
     elems <- catMaybes <$> mapM go (HashMap.toList hmap)
     return (ty, elems)
-
-  go :: (Show (req a), Show a)
-     => (req a, ResultVar a)
-     -> IO (Maybe (String, Either SomeException String))
-  go (req, rvar) = do
-    maybe_r <- tryReadResult rvar
-    case maybe_r of
-      Nothing -> return Nothing
-      Just (Left e) -> return (Just (show req, Left e))
-      Just (Right result) -> return (Just (show req, Right (show result)))
+   where
+    go  (req, rvar) = do
+      maybe_r <- tryReadResult rvar
+      case maybe_r of
+        Nothing -> return Nothing
+        Just (Left e) -> return (Just (showReq req, Left e))
+        Just (Right result) ->
+          return (Just (showReq req, Right (showRes result)))
