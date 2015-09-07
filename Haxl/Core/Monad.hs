@@ -167,7 +167,12 @@ instance Monad (GenHaxl u) where
   (>>) = (*>)
 
 instance Functor (GenHaxl u) where
-  fmap f m = pure f <*> m
+  fmap f (GenHaxl m) = GenHaxl $ \env ref -> do
+    r <- m env ref
+    case r of
+      Done a -> return (Done (f a))
+      Throw e -> return (Throw e)
+      Blocked a' -> return (Blocked (f <$> a'))
 
 instance Applicative (GenHaxl u) where
   pure = return
