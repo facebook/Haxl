@@ -147,7 +147,45 @@ newtype GenHaxl u a = GenHaxl
 data Result u a
   = Done a
   | Throw SomeException
-  | Blocked (GenHaxl u a)
+  | Blocked (Cont u a)
+
+data Cont u a
+  = Cont (GenHaxl u a)
+  | forall b. Cont u b :>>= (b -> GenHaxl u a)
+  | forall b. (Cont u (b -> a)) :<*> (Cont u b)
+  | forall b. (b -> a) :<$> (Cont u b)
+
+toHaxl :: Cont u a -> GenHaxl u a
+toHaxl (Cont haxl)           = haxl
+toHaxl ((m :>>= k1) :>>= k2) = toHaxl (m :>>= (k1 >=> k2)) -- for seql
+toHaxl (c :>>= k)            = toHaxl c >>= k
+toHaxl ((f :<$> i) :<*> (g :<$> j)) =
+  toHaxl (((\x y -> f x (g y)) :<$> i) :<*> j)          -- See Note [Tree]
+toHaxl (f :<*> x)            = toHaxl f <*> toHaxl x
+toHaxl (f :<$> (g :<$> x))   = toHaxl ((f . g) :<$> x)  -- fmap fusion
+toHaxl (f :<$> x)            = fmap f (toHaxl x)
+
+-- Note [Tree]
+-- This implements the following re-association:
+--
+--           <*>
+--          /   \
+--       <$>     <$>
+--      /   \   /   \
+--     f     i g     j
+--
+-- to:
+--
+--           <*>
+--          /   \
+--       <$>     j
+--      /   \         where h = (\x y -> f x (g y))
+--     h     i
+--
+-- I suspect this is mostly useful because it eliminates one :<$> constructor
+-- within the Blocked returned by `tree 1`, which is replicated a lot by the
+-- tree benchmark (tree 1 is near the leaves). So this rule might just be
+-- optimizing for a microbenchmark.
 
 instance (Show a) => Show (Result u a) where
   show (Done a) = printf "Done(%s)" $ show a
@@ -161,7 +199,7 @@ instance Monad (GenHaxl u) where
     case e of
       Done a       -> unHaxl (k a) env ref
       Throw e      -> return (Throw e)
-      Blocked cont -> return (Blocked (cont >>= k))
+      Blocked cont -> return (Blocked (cont :>>= k))
 
   -- We really want the Applicative version of >>
   (>>) = (*>)
@@ -172,7 +210,7 @@ instance Functor (GenHaxl u) where
     case r of
       Done a -> return (Done (f a))
       Throw e -> return (Throw e)
-      Blocked a' -> return (Blocked (f <$> a'))
+      Blocked a' -> return (Blocked (f :<$> a'))
 
 instance Applicative (GenHaxl u) where
   pure = return
@@ -185,22 +223,22 @@ instance Applicative (GenHaxl u) where
         case ra of
           Done a'    -> return (Done (f' a'))
           Throw e    -> return (Throw e)
-          Blocked a' -> return (Blocked (f' <$> a'))
+          Blocked a' -> return (Blocked (f' :<$> a'))
       Blocked f' -> do
         ra <- a env ref  -- left is blocked, explore the right
         case ra of
-          Done a'    -> return (Blocked (f' <*> return a'))
-          Throw e    -> return (Blocked (f' <*> throw e))
-          Blocked a' -> return (Blocked (f' <*> a'))
+          Done a'    -> return (Blocked (($ a') :<$> f'))
+          Throw e    -> return (Blocked (f' :<*> Cont (throw e)))
+          Blocked a' -> return (Blocked (f' :<*> a'))
 
 -- | Runs a 'Haxl' computation in an 'Env'.
 runHaxl :: Env u -> GenHaxl u a -> IO a
 #ifdef EVENTLOG
 runHaxl env h = do
-  let go !n env (GenHaxl haxl) = do
+  let go !n env c = do
         traceEventIO "START computation"
         ref <- newIORef noRequests
-        e <- haxl env ref
+        e <- toHaxl c env ref
         traceEventIO "STOP computation"
         case e of
           Done a       -> return a
@@ -213,7 +251,7 @@ runHaxl env h = do
             traceEventIO "STOP performFetches"
             go n' env cont
   traceEventIO "START runHaxl"
-  r <- go 0 env h
+  r <- go 0 env (Cont h)
   traceEventIO "STOP runHaxl"
   return r
 #else
@@ -227,7 +265,7 @@ runHaxl env (GenHaxl haxl) = do
       bs <- readIORef ref
       writeIORef ref noRequests -- Note [RoundId]
       void (performFetches 0 env bs)
-      runHaxl env cont
+      runHaxl env (toHaxl cont)
 #endif
 
 -- | Extracts data from the 'Env'.
@@ -242,7 +280,7 @@ withEnv newEnv (GenHaxl m) = GenHaxl $ \_env ref -> do
   case r of
     Done a -> return (Done a)
     Throw e -> return (Throw e)
-    Blocked k -> return (Blocked (withEnv newEnv k))
+    Blocked k -> return (Blocked (Cont (withEnv newEnv (toHaxl k))))
 
 -- -----------------------------------------------------------------------------
 -- Exceptions
@@ -262,7 +300,7 @@ catch (GenHaxl m) h = GenHaxl $ \env ref -> do
      Done a    -> return (Done a)
      Throw e | Just e' <- fromException e -> unHaxl (h e') env ref
              | otherwise -> return (Throw e)
-     Blocked k -> return (Blocked (catch k h))
+     Blocked k -> return (Blocked (Cont (catch (toHaxl k) h)))
 
 -- | Catch exceptions that satisfy a predicate
 catchIf
@@ -293,7 +331,7 @@ unsafeToHaxlException :: GenHaxl u a -> GenHaxl u a
 unsafeToHaxlException (GenHaxl m) = GenHaxl $ \env ref -> do
   r <- m env ref `Exception.catch` \e -> return (Throw e)
   case r of
-    Blocked c -> return (Blocked (unsafeToHaxlException c))
+    Blocked c -> return (Blocked (Cont (unsafeToHaxlException (toHaxl c))))
     other -> return other
 
 -- | Like 'try', but lifts all exceptions into the 'HaxlException'
@@ -352,12 +390,12 @@ dataFetch req = GenHaxl $ \env ref -> do
     -- will be fetched in the next round.
     Uncached rvar -> do
       modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
-      return $ Blocked (continueFetch req rvar)
+      return $ Blocked (Cont (continueFetch req rvar))
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
     CachedNotFetched rvar -> return
-      $ Blocked (continueFetch req rvar)
+      $ Blocked (Cont (continueFetch req rvar))
 
     -- Cached: either a result, or an exception
     Cached (Left ex) -> return (Throw ex)
@@ -378,7 +416,7 @@ uncachedRequest :: (DataSource u r, Request r a) => r a -> GenHaxl u a
 uncachedRequest req = GenHaxl $ \_env ref -> do
   rvar <- newEmptyResult
   modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
-  return $ Blocked (continueFetch req rvar)
+  return $ Blocked (Cont (continueFetch req rvar))
 
 continueFetch
   :: (DataSource u r, Request r a, Show a)
@@ -685,7 +723,7 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
       case status of
         MemoDone r -> done r
         MemoInProgress round cont
-          | round == ref -> return (Blocked (retryMemo req))
+          | round == ref -> return (Blocked (Cont (retryMemo req)))
           | otherwise    -> run memovar cont env ref
           -- was blocked in a previous round; run the saved continuation to
           -- make more progress.
@@ -714,8 +752,8 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
       Done a -> complete memovar (Right a)
       Throw e -> complete memovar (Left e)
       Blocked cont -> do
-        writeIORef memovar (MemoInProgress ref cont)
-        return (Blocked (retryMemo req))
+        writeIORef memovar (MemoInProgress ref (toHaxl cont))
+        return (Blocked (Cont (retryMemo req)))
 
   -- We're finished: store the final result
   complete memovar r = do
