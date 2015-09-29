@@ -55,7 +55,9 @@ import Control.Exception (AllocationLimitExceeded(..))
 #endif
 import Control.Monad
 import qualified Control.Exception as Exception
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative hiding (Const)
+#endif
 import Control.DeepSeq
 import GHC.Exts (IsString(..))
 #if __GLASGOW_HASKELL__ < 706
