@@ -1,4 +1,5 @@
 -- Necessary:
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -12,7 +13,9 @@
 
 module Main where
 
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative
+#endif
 import Control.Monad
 import Data.Hashable
 import Data.List
