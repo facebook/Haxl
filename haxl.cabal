@@ -50,6 +50,7 @@ library
     Haxl.Core.StateStore,
     Haxl.Core.Show1,
     Haxl.Core.Types,
+    Haxl.Core.Memo,
     Haxl.Prelude
 
   other-modules:
