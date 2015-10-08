@@ -20,9 +20,6 @@
 -- | Base types used by all of Haxl.
 module Haxl.Core.Types (
 
-  -- * Initialization strategies
-  InitStrategy(..),
-
   -- * Tracing flags
   Flags(..),
   defaultFlags,
@@ -90,16 +87,6 @@ import Haxl.Core.Util (tryReadMVar)
 #endif
 import Haxl.Core.Show1
 import Haxl.Core.StateStore
-
--- | Initialization strategy. 'FullInit' will do as much initialization as
--- possible. 'FastInit' will postpone part of initialization or omit part of
--- initialization by sharing more resources. Use 'FastInit' if you want
--- fast initialization but don't care much about performance, for example, in
--- interactive environment.
-data InitStrategy
-  = FullInit
-  | FastInit
-  deriving (Enum, Eq, Show)
 
 -- | Flags that control the operation of the engine.
 data Flags = Flags
