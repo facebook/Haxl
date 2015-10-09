@@ -16,6 +16,8 @@
 -- of requests, the 'contents' operation extracts the fetches, bucketed
 -- by 'DataSource'.
 --
+-- This module is provided for access to Haxl internals only; most
+-- users should not need to import it.
 module Haxl.Core.RequestStore (
     BlockedFetches(..), RequestStore,
     noRequests, addRequest, contents

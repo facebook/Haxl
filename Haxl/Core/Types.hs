@@ -17,7 +17,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | Base types used by all of Haxl.
+-- | Base types used by all of Haxl. Most users should import
+-- "Haxl.Core" instead of importing this module directly.
 module Haxl.Core.Types (
 
   -- * Tracing flags
@@ -188,7 +189,7 @@ numFetches (Stats rs) = sum (map fetchesInRound rs)
 class (DataSourceName req, StateKey req, Show1 req) => DataSource u req where
 
   -- | Issues a list of fetches to this 'DataSource'. The 'BlockedFetch'
-  -- objects contain both the request and the 'MVar's into which to put
+  -- objects contain both the request and the 'ResultVar's into which to put
   -- the results.
   fetch
     :: State req
@@ -250,7 +251,7 @@ data PerformFetch
 --
 --   * The request to fetch (with result type @a@)
 --
---   * An 'MVar' to store either the result or an error
+--   * A 'ResultVar' to store either the result or an error
 --
 -- We often want to collect together multiple requests, but they return
 -- different types, and the type system wouldn't let us put them
@@ -258,10 +259,10 @@ data PerformFetch
 -- same type. So we wrap up these types inside the 'BlockedFetch' type,
 -- so that they all look the same and we can put them in a list.
 --
--- When we unpack the 'BlockedFetch' and get the request and the 'MVar'
+-- When we unpack the 'BlockedFetch' and get the request and the 'ResultVar'
 -- out, the type system knows that the result type of the request
--- matches the type parameter of the 'MVar', so it will let us take the
--- result of the request and store it in the 'MVar'.
+-- matches the type parameter of the 'ResultVar', so it will let us take the
+-- result of the request and store it in the 'ResultVar'.
 --
 data BlockedFetch r = forall a. BlockedFetch (r a) (ResultVar a)
 
@@ -272,9 +273,11 @@ setError e (BlockedFetch req m) = putFailure m (e req)
 except :: (Exception e) => e -> Either SomeException a
 except = Left . toException
 
--- | A sink for the result of a data fetch, used by 'BlockedFetch' and the
--- 'DataCache'. Why do we need an 'MVar' here?  The reason is that the cache
--- serves two purposes:
+-- | A sink for the result of a data fetch in 'BlockedFetch'
+newtype ResultVar a = ResultVar (MVar (Either SomeException a))
+
+-- Why do we need an 'MVar' here?  The reason is that the
+-- cache serves two purposes:
 --
 --  1. To cache the results of requests that were submitted in a previous round.
 --
@@ -291,8 +294,6 @@ except = Left . toException
 --     current round, and after the round we can read the result of each request
 --     from its 'MVar'. All instances of identical requests will share the same
 --     'MVar' to obtain the result.
---
-newtype ResultVar a = ResultVar (MVar (Either SomeException a))
 
 newResult :: a -> IO (ResultVar a)
 newResult x = ResultVar <$> newMVar (Right x)

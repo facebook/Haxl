@@ -11,6 +11,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
 
+-- | Most users should import "Haxl.Core" instead of importing this
+-- module directly.
 module Haxl.Core.StateStore (
     StateKey(..), StateStore, stateGet, stateSet, stateEmpty
   ) where

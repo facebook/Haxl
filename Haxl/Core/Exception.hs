@@ -24,7 +24,9 @@
 -- 'withDefault' to be useful, for example, you'll want your
 -- exceptions to be children of 'LogicError' or 'TransientError' as
 -- appropriate.
-
+--
+-- Most users should import "Haxl.Core" instead of importing this
+-- module directly.
 module Haxl.Core.Exception (
 
   HaxlException(..),

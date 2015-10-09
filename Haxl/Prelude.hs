@@ -13,7 +13,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Support for using Haxl as a DSL.  This module provides most of
--- the standard Prelude, plus a selection of stuff that makes it
+-- the standard Prelude, plus a selection of stuff that makes
 -- Haxl client code cleaner and more concise.
 --
 -- We intend Haxl client code to:

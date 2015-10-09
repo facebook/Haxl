@@ -16,14 +16,15 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | The implementation of the 'Haxl' monad.
+-- | The implementation of the 'Haxl' monad.  Most users should
+-- import "Haxl.Core" instead of importing this module directly.
 module Haxl.Core.Monad (
     -- * The monad
     GenHaxl (..), runHaxl,
     env, withEnv,
 
     -- * Env
-    Env(..), caches, initEnvWithData, initEnv, emptyEnv,
+    Env(..), Caches, caches, initEnvWithData, initEnv, emptyEnv,
 
     -- * Exceptions
     throw, catch, catchIf, try, tryToHaxlException,
@@ -112,7 +113,7 @@ initEnvWithData states e (cref, mref) = do
     , statsRef = sref
     }
 
--- | Initializes an environment with 'DataStates' and an input map.
+-- | Initializes an environment with 'StateStore' and an input map.
 initEnv :: StateStore -> u -> IO (Env u)
 initEnv states e = do
   cref <- newIORef DataCache.empty

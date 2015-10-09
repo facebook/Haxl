@@ -1,5 +1,5 @@
 name:                haxl
-version:             0.2.0.0
+version:             0.3.0.0
 synopsis:            A Haskell library for efficient, concurrent,
                      and concise data access.
 homepage:            https://github.com/facebook/Haxl
@@ -17,11 +17,23 @@ cabal-version:       >= 1.10
 description:
   Haxl is a library and EDSL for efficient scheduling of concurrent data
   accesses with a concise applicative API.
+  .
+  To use Haxl, you need to implement one or more /data sources/, which
+  provide the means for accessing remote data or other I/O that you
+  want to perform using Haxl.
+  .
+  Haxl provides two top-level modules:
+  .
+  * /Data-source implementations/ import "Haxl.Core",
+  .
+  * /Client code/ import your data sources and "Haxl.Prelude", or some
+   other client-level API that you provide.
 
 extra-source-files:
   readme.md
   PATENTS
   tests/LoadCache.txt
+  changelog.md
 
 library
 

@@ -6,14 +6,81 @@
 -- be found in the PATENTS file.
 
 -- | Everything needed to define data sources and to invoke the
--- engine. This module should not be imported by user code.
-module Haxl.Core
-  ( module Haxl.Core.Memo
-  , module Haxl.Core.Monad
-  , module Haxl.Core.Types
-  , module Haxl.Core.Exception
-  , module Haxl.Core.StateStore
-  , module Haxl.Core.Show1
+-- engine.
+--
+module Haxl.Core (
+  -- * The monad and operations
+  GenHaxl (..), runHaxl,
+
+  -- ** Env
+  Env(..), Caches, caches,
+  -- *** Operations in the monad
+  env, withEnv,
+  -- *** Building the Env
+  initEnvWithData, initEnv, emptyEnv,
+  -- *** Building the StateStore
+  StateStore, stateGet, stateSet, stateEmpty,
+
+  -- ** Exceptions
+  throw, catch, catchIf, try, tryToHaxlException,
+
+  -- ** Data fetching and caching
+  dataFetch, uncachedRequest,
+  cacheRequest, cacheResult, cachedComputation,
+  dumpCacheAsHaskell,
+
+  -- ** Memoization
+  memo, memoFingerprint, MemoFingerprintKey(..),
+
+  -- ** Statistics
+  Stats(..),
+  RoundStats(..),
+  DataSourceRoundStats(..),
+  Microseconds,
+  emptyStats,
+  numRounds,
+  numFetches,
+  ppStats,
+  ppRoundStats,
+  ppDataSourceRoundStats,
+
+  -- ** Tracing flags
+  Flags(..),
+  defaultFlags,
+  ifTrace,
+  ifReport,
+
+  -- * Building data sources
+  DataSource(..),
+  Show1(..),
+  DataSourceName(..),
+  Request,
+  BlockedFetch(..),
+  PerformFetch(..),
+  StateKey(..),
+
+  -- ** Result variables
+  ResultVar(..),
+  newEmptyResult,
+  newResult,
+  putFailure,
+  putResult,
+  putSuccess,
+  takeResult,
+  tryReadResult,
+  tryTakeResult,
+
+  -- ** Default fetch implementations
+  asyncFetch, asyncFetchWithDispatch,
+  stubFetch,
+  syncFetch,
+
+  -- ** Utilities
+  except,
+  setError,
+
+  -- * Exceptions
+  module Haxl.Core.Exception
   ) where
 
 import Haxl.Core.Memo

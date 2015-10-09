@@ -5,6 +5,8 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+-- Most users should import "Haxl.Core" instead of importing this
+-- module directly.
 module Haxl.Core.Show1
   ( Show1(..)
   ) where

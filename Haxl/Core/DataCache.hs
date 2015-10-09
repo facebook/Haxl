@@ -10,7 +10,9 @@
 {-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- | A cache mapping data requests to their results.
+-- | A cache mapping data requests to their results.  This module is
+-- provided for access to Haxl internals only; most users should not
+-- need to import it.
 module Haxl.Core.DataCache
   ( DataCache
   , empty
