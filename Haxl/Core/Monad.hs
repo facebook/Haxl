@@ -711,11 +711,23 @@ performFetches n env reqs = do
       scheduleFetches fetches
       return $ repeat Nothing
 
+  failures <-
+    if report f >= 3
+    then
+      forM jobs $ \(BlockedFetches reqs) ->
+        fmap (Just . length) . flip filterM reqs $ \(BlockedFetch _ rvar) -> do
+          mb <- tryReadResult rvar
+          return $ case mb of
+            Just (Right _) -> False
+            _ -> True
+    else return $ repeat Nothing
+
   let dsroundstats = HashMap.fromList
-         [ (name, DataSourceRoundStats { dataSourceFetches = fetches
+         [ (name, DataSourceRoundStats { dataSourceFetches = dsfetch
                                        , dataSourceTime = time
+                                       , dataSourceFailures = dsfailure
                                        })
-         | ((name, fetches), time) <- zip roundstats times]
+         | ((name, dsfetch), time, dsfailure) <- zip3 roundstats times failures]
 
   t1 <- getCurrentTime
   let roundtime = realToFrac (diffUTCTime t1 t0) :: Double

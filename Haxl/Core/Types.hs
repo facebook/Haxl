@@ -171,18 +171,21 @@ instance ToJSON RoundStats where
 data DataSourceRoundStats = DataSourceRoundStats
   { dataSourceFetches :: Int
   , dataSourceTime :: Maybe Microseconds
+  , dataSourceFailures :: Maybe Int
   }
 
 -- | Pretty-print DataSourceRoundStats
 ppDataSourceRoundStats :: DataSourceRoundStats -> String
-ppDataSourceRoundStats (DataSourceRoundStats i t) =
-  maybeTime $ show i ++ " fetches"
-    where maybeTime = maybe id (\ tm s -> s ++ " (" ++ show tm ++ "us)") t
+ppDataSourceRoundStats (DataSourceRoundStats fetches time failures) =
+  maybe id (\t s -> s ++ " (" ++ show t ++ "us)") time $
+  maybe id (\f s -> s ++ " " ++ show f ++ " failures") failures $
+  show fetches ++ " fetches"
 
 instance ToJSON DataSourceRoundStats where
   toJSON DataSourceRoundStats{..} = object [k .= v | (k, Just v) <-
     [ ("fetches", Just dataSourceFetches)
     , ("time", dataSourceTime)
+    , ("failures", dataSourceFailures)
     ]]
 
 fetchesInRound :: RoundStats -> Int
