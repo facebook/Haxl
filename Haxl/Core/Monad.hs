@@ -47,6 +47,7 @@ import Haxl.Core.Util
 import Haxl.Core.DataCache as DataCache
 
 import qualified Data.Text as Text
+import qualified Control.Monad.Catch as Catch
 import Control.Exception (Exception(..), SomeException)
 #if __GLASGOW_HASKELL__ >= 708
 import Control.Exception (SomeAsyncException(..))
@@ -317,6 +318,10 @@ catchIf cond haxl handler =
 try :: Exception e => GenHaxl u a -> GenHaxl u (Either e a)
 try haxl = (Right <$> haxl) `catch` (return . Left)
 
+-- | @since 0.3.1.0
+instance Catch.MonadThrow (GenHaxl u) where throwM = Haxl.Core.Monad.throw
+-- | @since 0.3.1.0
+instance Catch.MonadCatch (GenHaxl u) where catch = Haxl.Core.Monad.catch
 
 -- -----------------------------------------------------------------------------
 -- Unsafe operations
