@@ -14,7 +14,8 @@
 -- provided for access to Haxl internals only; most users should not
 -- need to import it.
 module Haxl.Core.DataCache
-  ( DataCache
+  ( DataCache(..)
+  , SubCache(..)
   , empty
   , insert
   , insertNotShowable
@@ -50,7 +51,7 @@ newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
 -- This works well because we only have to store the dictionaries for
 -- 'Hashable' and 'Eq' once per request type.
 data SubCache res =
-  forall req a . (Hashable (req a), Eq (req a)) =>
+  forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
        SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
        -- NB. the inner HashMap is strict, to avoid building up
        -- a chain of thunks during repeated insertions.
