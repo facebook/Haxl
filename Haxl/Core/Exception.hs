@@ -5,6 +5,7 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -65,6 +66,7 @@ module Haxl.Core.Exception (
 
 import Control.Exception
 import Data.Aeson
+import Data.Binary (Binary)
 import Data.Typeable
 import Data.Text (Text)
 
@@ -189,16 +191,16 @@ logicErrorFromException x = do
 
 -- | Generic \"critical\" exception. Something internal is
 -- borked. Panic.
-data CriticalError = CriticalError Text
-  deriving (Typeable, Eq, Show)
+newtype CriticalError = CriticalError Text
+  deriving (Typeable, Binary, Eq, Show)
 
 instance Exception CriticalError where
   toException   = internalErrorToException
   fromException = internalErrorFromException
 
 -- | Generic \"something was not found\" exception.
-data NotFound = NotFound Text
-  deriving (Typeable, Eq, Show)
+newtype NotFound = NotFound Text
+  deriving (Typeable, Binary, Eq, Show)
 
 instance Exception NotFound where
   toException = logicErrorToException

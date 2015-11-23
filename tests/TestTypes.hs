@@ -10,6 +10,7 @@ module TestTypes
    ) where
 
 import Data.Aeson
+import Data.Binary (Binary)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.HashMap.Strict as HashMap
@@ -36,7 +37,7 @@ lookupInput field = do
 
 
 newtype Id = Id Int
-  deriving (Eq, Ord, Enum, Num, Integral, Real, Hashable, Typeable,
+  deriving (Eq, Ord, Binary, Enum, Num, Integral, Real, Hashable, Typeable,
             ToJSON, FromJSON)
 
 instance Show Id where
