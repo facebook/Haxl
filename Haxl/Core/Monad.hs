@@ -79,6 +79,9 @@ import Control.Arrow (left)
 import Control.Exception (bracket_)
 import Debug.Trace (traceEventIO)
 #endif
+#ifdef PROFILING
+import GHC.Stack
+#endif
 
 -- -----------------------------------------------------------------------------
 -- The environment
@@ -294,7 +297,16 @@ throw :: (Exception e) => e -> GenHaxl u a
 throw e = GenHaxl $ \_env _ref -> raise e
 
 raise :: (Exception e) => e -> IO (Result u a)
-raise = return . Throw . toException
+raise e
+#ifdef PROFILING
+  | Just (HaxlException Nothing h) <- fromException somex = do
+    stk <- currentCallStack
+    return (Throw (toException (HaxlException (Just stk) h)))
+  | otherwise
+#endif
+    = return (Throw somex)
+  where
+    somex = toException e
 
 -- | Catch an exception in the Haxl monad
 catch :: Exception e => GenHaxl u a -> (e -> GenHaxl u a) -> GenHaxl u a

@@ -71,6 +71,7 @@ import Data.Typeable
 import Data.Text (Text)
 
 import Haxl.Core.Util
+import GHC.Stack
 
 -- | We have a 3-tiered hierarchy of exceptions, with 'HaxlException' at
 -- the top, and all Haxl exceptions as children of this. Users should
@@ -90,30 +91,42 @@ import Haxl.Core.Util
 -- (generic transient failure) or 'CriticalError' (internal failure).
 --
 data HaxlException
-  = forall e. (Exception e, MiddleException e) => HaxlException e
+  = forall e. (Exception e, MiddleException e)
+    => HaxlException
+         (Maybe Stack)  -- filled in with the call stack when thrown,
+                        -- if PROFILING is on
+         e
   deriving (Typeable)
 
+type Stack = [String]
+  -- hopefully this will get more informative in the future
+
 instance Show HaxlException where
-  show (HaxlException e) = show e
+  show (HaxlException (Just stk@(_:_)) e) = show e ++ '\n' : renderStack stk
+  show (HaxlException _ e) = show e
 
 instance Exception HaxlException
 
 -- | These need to be serializable to JSON to cross FFI boundaries.
 instance ToJSON HaxlException where
-  toJSON (HaxlException e) = object
-    [ "type" .= show (typeOf e)
-    , "name" .= eName e
-    , "txt"  .= show e
-    ]
+  toJSON (HaxlException stk e) = object fields
+    where
+      fields | Just s@(_:_) <- stk = ("stack" .= reverse s) : rest
+             | otherwise = rest
+      rest =
+        [ "type" .= show (typeOf e)
+        , "name" .= eName e
+        , "txt"  .= show e
+        ]
 
 haxlExceptionToException
   :: (Exception e, MiddleException e) => e -> SomeException
-haxlExceptionToException = toException . HaxlException
+haxlExceptionToException = toException . HaxlException Nothing
 
 haxlExceptionFromException
   :: (Exception e, MiddleException e) => SomeException -> Maybe e
 haxlExceptionFromException x = do
-  HaxlException a <- fromException x
+  HaxlException _ a <- fromException x
   cast a
 
 class (Exception a) => MiddleException a where
@@ -261,4 +274,4 @@ asHaxlException e
   | Just haxl_exception <- fromException e = -- it's a HaxlException
      haxl_exception
   | otherwise =
-     HaxlException (InternalError (CriticalError (textShow e)))
+     HaxlException Nothing (InternalError (CriticalError (textShow e)))
