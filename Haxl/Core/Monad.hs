@@ -725,7 +725,7 @@ runHaxl).
 --
 cachedComputation
    :: forall req u a.
-      (Eq (req a)
+      ( Eq (req a)
       , Hashable (req a)
       , Typeable (req a))
    => req a -> GenHaxl u a -> GenHaxl u a

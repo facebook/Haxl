@@ -55,7 +55,6 @@ data MemoTextKey a where
   deriving Typeable
 
 deriving instance Eq (MemoTextKey a)
-deriving instance Show (MemoTextKey a)
 
 instance Hashable (MemoTextKey a) where
   hashWithSalt s (MemoText t) = hashWithSalt s t
@@ -73,7 +72,6 @@ data MemoFingerprintKey a where
   deriving Typeable
 
 deriving instance Eq (MemoFingerprintKey a)
-deriving instance Show (MemoFingerprintKey a)
 
 instance Hashable (MemoFingerprintKey a) where
   hashWithSalt s (MemoFingerprintKey x _) =
@@ -89,5 +87,5 @@ instance Hashable (MemoFingerprintKey a) where
 --
 {-# NOINLINE memoFingerprint #-}
 memoFingerprint
-   :: (Show a, Typeable a) => MemoFingerprintKey a -> GenHaxl u a -> GenHaxl u a
+  :: Typeable a => MemoFingerprintKey a -> GenHaxl u a -> GenHaxl u a
 memoFingerprint key = cachedComputation key
