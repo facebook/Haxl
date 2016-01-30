@@ -75,7 +75,7 @@ contents (RequestStore m) = Map.elems m
 
 -- | Retrieves requests in the 'RequestStore' that have the same type
 -- as a given request.
-requestsOfType :: forall r a u . (Typeable r, Request r a) => r a -> RequestStore u -> [BlockedFetch r]
+requestsOfType :: forall r a u . (DataSource u r, Request r a) => r a -> RequestStore u -> [BlockedFetch r]
 requestsOfType _ (RequestStore rs) =
   let ty = typeOf1 (undefined :: r a)
   in case Map.lookup ty rs of
