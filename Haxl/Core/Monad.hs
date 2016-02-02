@@ -453,18 +453,23 @@ dataFetchEquiv :: forall r a u . (DataSource u r, Request r a)
 dataFetchEquiv equiv f req = GenHaxl $ \ env ref -> do
   res <- cachedKeyTransform f env req
   case res of
+    -- No request equivalent to req is cached yet
     Uncached rvar -> do
       allRequests <- readIORef ref
       let test (BlockedFetch r _) = unsafeCoerce r `equiv` req
           req' = find test (requestsOfType req allRequests)
+      -- test if there is already an equivalent request in the current round.
       case req' of
+        -- if not, enter this request
         Nothing -> do
           modifyIORef' ref $ \ bs -> addRequest (BlockedFetch req rvar) bs
           return $ Blocked (Cont (continueFetch req rvar))
+        -- if there is an equivalent request, use the same result variable
         Just (BlockedFetch r rvar) ->
           let r' = unsafeCoerce r :: r a
               rvar' = unsafeCoerce rvar
           in return $ Blocked (Cont (continueFetch r' rvar'))
+    -- below just as in dataFetch
     CachedNotFetched rvar -> return $ Blocked (Cont (continueFetch req rvar))
     Cached (Left ex) -> return (Throw ex)
     Cached (Right a) -> return (Done a)
