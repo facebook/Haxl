@@ -8,6 +8,7 @@ import DataCacheTest
 #ifdef HAVE_APPLICATIVEDO
 import AdoTests
 #endif
+import TestEquivDataSource
 
 import Data.String
 import Test.HUnit
@@ -23,4 +24,5 @@ main = runTestTT $ TestList
 #ifdef HAVE_APPLICATIVEDO
   , TestLabel "AdoTests" AdoTests.tests
 #endif
+  , TestLabel "EquivDataSource" TestEquivDataSource.tests
   ]
