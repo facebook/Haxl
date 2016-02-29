@@ -32,7 +32,7 @@ module Haxl.Core.Monad (
     -- * Data fetching and caching
     dataFetch, uncachedRequest,
     cacheRequest, cacheResult, cachedComputation,
-    dumpCacheAsHaskell,
+    dumpCacheAsHaskell, dumpCacheAsHaskellFn,
 
     -- * Unsafe operations
     unsafeLiftIO, unsafeToHaxlException,
@@ -798,7 +798,14 @@ done = return . either Throw Done
 -- >   cacheRequest (CountAardvarks "abcabc") (Right (2))
 --
 dumpCacheAsHaskell :: GenHaxl u String
-dumpCacheAsHaskell = do
+dumpCacheAsHaskell = dumpCacheAsHaskellFn "loadCache" "GenHaxl u ()"
+
+-- | Dump the contents of the cache as Haskell code that, when
+-- compiled and run, will recreate the same cache contents.
+--
+-- Takes the name and type for the resulting function as arguments.
+dumpCacheAsHaskellFn :: String -> String -> GenHaxl u String
+dumpCacheAsHaskellFn fnName fnType = do
   ref <- env cacheRef  -- NB. cacheRef, not memoRef.  We ignore memoized
                        -- results when dumping the cache.
   entries <- unsafeLiftIO $ readIORef ref >>= showCache
@@ -809,7 +816,7 @@ dumpCacheAsHaskell = do
     result (Right s) = text "Right" <+> parens (text s)
 
   return $ show $
-    text "loadCache :: GenHaxl u ()" $$
-    text "loadCache = do" $$
+    text (fnName ++ " :: " ++ fnType) $$
+    text (fnName ++ " = do") $$
       nest 2 (vcat (map mk_cr (concatMap snd entries))) $$
     text "" -- final newline
