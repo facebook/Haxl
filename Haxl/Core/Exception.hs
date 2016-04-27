@@ -41,6 +41,10 @@ module Haxl.Core.Exception (
   logicErrorToException,
   logicErrorFromException,
 
+  LogicBug(..),
+  logicBugToException,
+  logicBugFromException,
+
   TransientError(..),
   transientErrorToException,
   transientErrorFromException,
@@ -81,7 +85,10 @@ import GHC.Stack
 --
 --   ['InternalError']  Something is wrong with Haxl core.
 --
---   ['LogicError']     Something is wrong with Haxl client code.
+--   ['LogicBug']       Something is wrong with Haxl client code.
+--
+--   ['LogicError']     Things that really should be return values, e.g.
+--                      NotFound.
 --
 --   ['TransientError'] Something is temporarily failing (usually in a fetch).
 --
@@ -198,6 +205,27 @@ logicErrorFromException x = do
   LogicError a <- fromException x
   cast a
 
+data LogicBug = forall e . (Exception e) => LogicBug e
+  deriving (Typeable)
+
+deriving instance Show LogicBug
+
+instance Exception LogicBug where
+ toException   = haxlExceptionToException
+ fromException = haxlExceptionFromException
+
+instance MiddleException LogicBug where
+  eName (LogicBug e) = show $ typeOf e
+
+logicBugToException :: (Exception e) => e -> SomeException
+logicBugToException = toException . LogicBug
+
+logicBugFromException
+  :: (Exception e) => SomeException -> Maybe e
+logicBugFromException x = do
+  LogicBug a <- fromException x
+  cast a
+
 ------------------------------------------------------------------------
 -- Leaf exceptions. You should throw these. Or make your own.
 ------------------------------------------------------------------------
@@ -234,6 +262,7 @@ data EmptyList = EmptyList Text
 instance Exception EmptyList where
   toException = logicErrorToException
   fromException = logicErrorFromException
+  -- TODO: should be a child of LogicBug
 
 -- | Generic \"Incorrect assumptions about JSON data\" exception.
 data JSONError = JSONError Text
@@ -250,6 +279,7 @@ data InvalidParameter = InvalidParameter Text
 instance Exception InvalidParameter where
   toException = logicErrorToException
   fromException = logicErrorFromException
+  -- TODO: should be a child of LogicBug
 
 -- | Generic transient fetching exceptions.
 data FetchError = FetchError Text
