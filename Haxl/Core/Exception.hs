@@ -239,6 +239,17 @@ instance Exception CriticalError where
   toException   = internalErrorToException
   fromException = internalErrorFromException
 
+-- | Exceptions that are converted to HaxlException by
+-- asHaxlException.  Typically these will be pure exceptions,
+-- e.g., the 'error' function in pure code, or a pattern-match
+-- failure.
+newtype NonHaxlException = NonHaxlException Text
+  deriving (Typeable, Binary, Eq, Show)
+
+instance Exception NonHaxlException where
+  toException   = internalErrorToException
+  fromException = internalErrorFromException
+
 -- | Generic \"something was not found\" exception.
 newtype NotFound = NotFound Text
   deriving (Typeable, Binary, Eq, Show)
@@ -298,10 +309,10 @@ instance Exception DataSourceError where
   fromException = internalErrorFromException
 
 -- | Converts all exceptions that are not derived from 'HaxlException'
--- into 'CriticalError', using 'show'.
+-- into 'NonHaxlException', using 'show'.
 asHaxlException :: SomeException -> HaxlException
 asHaxlException e
   | Just haxl_exception <- fromException e = -- it's a HaxlException
      haxl_exception
   | otherwise =
-     HaxlException Nothing (InternalError (CriticalError (textShow e)))
+     HaxlException Nothing (InternalError (NonHaxlException (textShow e)))
