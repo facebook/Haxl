@@ -26,6 +26,7 @@ module Haxl.Core.Types (
   defaultFlags,
   ifTrace,
   ifReport,
+  ifProfiling,
 
   -- * Statistics
   Stats(..),
@@ -38,6 +39,10 @@ module Haxl.Core.Types (
   ppStats,
   ppRoundStats,
   ppDataSourceRoundStats,
+  Profile,
+  emptyProfile,
+  ProfileLabel,
+  ProfileData(..),
 
   -- * Data fetching
   DataSource(..),
@@ -76,8 +81,10 @@ import Control.Exception
 import Control.Monad
 import Data.Aeson
 import Data.Function (on)
+import Data.Int
 import Data.Hashable
 import Data.HashMap.Strict (HashMap, toList)
+import Data.HashSet (HashSet)
 import qualified Data.HashMap.Strict as HashMap
 import Data.List (intercalate, sortBy)
 import Data.Text (Text, unpack)
@@ -89,12 +96,16 @@ import Haxl.Core.Util (tryReadMVar)
 import Haxl.Core.Show1
 import Haxl.Core.StateStore
 
+-- ---------------------------------------------------------------------------
+-- Flags
+
 -- | Flags that control the operation of the engine.
 data Flags = Flags
   { trace :: Int
     -- ^ Tracing level (0 = quiet, 3 = very verbose).
   , report :: Int
-    -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors)
+    -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors,
+    -- 4 = profiling)
   }
 
 defaultFlags :: Flags
@@ -110,6 +121,13 @@ ifTrace flags i = when (trace flags >= i) . void
 -- | Runs an action if the report level is above the given threshold.
 ifReport :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
 ifReport flags i = when (report flags >= i) . void
+
+ifProfiling :: (Functor m, Monad m) => Flags -> m a -> m ()
+ifProfiling flags = when (report flags >= 4) . void
+
+
+-- ---------------------------------------------------------------------------
+-- Stats
 
 type Microseconds = Int
 
@@ -174,6 +192,29 @@ numRounds (Stats rs) = length rs
 
 numFetches :: Stats -> Int
 numFetches (Stats rs) = sum (map fetchesInRound rs)
+
+
+-- ---------------------------------------------------------------------------
+-- Profiling
+
+type ProfileLabel = Text
+type AllocCount = Int64
+
+type Profile = HashMap ProfileLabel ProfileData
+
+data ProfileData = ProfileData
+  { profileAllocs :: {-# UNPACK #-} !AllocCount
+     -- ^ allocations made by this label
+  , profileDeps :: HashSet ProfileLabel
+     -- ^ labels that this label depends on
+  }
+  deriving Show
+
+emptyProfile :: Profile
+emptyProfile = HashMap.empty
+
+-- ---------------------------------------------------------------------------
+-- DataSource class
 
 -- | The class of data sources, parameterised over the request type for
 -- that data source. Every data source must implement this class.

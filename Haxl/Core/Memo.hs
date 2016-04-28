@@ -17,7 +17,7 @@ import Data.Typeable
 import Data.Hashable
 import Data.Word
 
-import Haxl.Core.Monad (GenHaxl, cachedComputation)
+import Haxl.Core.Monad (GenHaxl, cachedComputation, withLabel)
 
 -- -----------------------------------------------------------------------------
 -- A key type that can be used for memoizing computations by a Text key
@@ -60,7 +60,7 @@ instance Hashable (MemoTextKey a) where
   hashWithSalt s (MemoText t) = hashWithSalt s t
 
 memoText :: (Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
-memoText key = cachedComputation (MemoText key)
+memoText key = withLabel key . cachedComputation (MemoText key)
 
 -- | A memo key derived from a 128-bit MD5 hash.  Do not use this directly,
 -- it is for use by automatically-generated memoization.

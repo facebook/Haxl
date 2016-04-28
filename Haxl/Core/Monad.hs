@@ -22,7 +22,7 @@
 module Haxl.Core.Monad (
     -- * The monad
     GenHaxl (..), runHaxl,
-    env, withEnv,
+    env, withEnv, withLabel,
 
     -- * Env
     Env(..), Caches, caches, initEnvWithData, initEnv, emptyEnv,
@@ -55,6 +55,7 @@ import Control.Exception (SomeAsyncException(..))
 #endif
 #if __GLASGOW_HASKELL__ >= 710
 import Control.Exception (AllocationLimitExceeded(..))
+import GHC.Conc (getAllocationCounter)
 #endif
 import Control.Monad
 import qualified Control.Exception as Exception
@@ -73,6 +74,7 @@ import Data.Monoid
 import Data.Time
 import Data.Typeable
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
 import Text.Printf
 import Text.PrettyPrint hiding ((<>))
 import Control.Arrow (left)
@@ -94,6 +96,8 @@ data Env u = Env
   , flags        :: Flags
   , userEnv      :: u
   , statsRef     :: IORef Stats
+  , profLabel    :: ProfileLabel
+  , profRef      :: IORef Profile
   , states       :: StateStore
   -- ^ Data sources and other components can store their state in
   -- here. Items in this store must be instances of 'StateKey'.
@@ -109,6 +113,7 @@ caches env = (cacheRef env, memoRef env)
 initEnvWithData :: StateStore -> u -> Caches u -> IO (Env u)
 initEnvWithData states e (cref, mref) = do
   sref <- newIORef emptyStats
+  pref <- newIORef emptyProfile
   return Env
     { cacheRef = cref
     , memoRef = mref
@@ -116,6 +121,8 @@ initEnvWithData states e (cref, mref) = do
     , userEnv = e
     , states = states
     , statsRef = sref
+    , profLabel = "MAIN"
+    , profRef = pref
     }
 
 -- | Initializes an environment with 'StateStore' and an input map.
@@ -289,6 +296,31 @@ withEnv newEnv (GenHaxl m) = GenHaxl $ \_env ref -> do
     Done a -> return (Done a)
     Throw e -> return (Throw e)
     Blocked k -> return (Blocked (Cont (withEnv newEnv (toHaxl k))))
+
+withLabel :: ProfileLabel -> GenHaxl u a -> GenHaxl u a
+withLabel l (GenHaxl m) = GenHaxl $ \env ref ->
+  if report (flags env) < 4
+     then m env ref
+     else do
+       a0 <- getAllocationCounter
+       r <- m env{profLabel=l} ref -- what if it throws?
+       a1 <- getAllocationCounter
+       let allocs = a0 - a1
+           caller = profLabel env
+       modifyIORef' (profRef env) $ \profile ->
+         let newEntry =
+               ProfileData
+                  { profileAllocs = allocs
+                  , profileDeps = HashSet.singleton caller }
+             oldEntry old _ =
+                ProfileData
+                  { profileAllocs = profileAllocs old + allocs
+                  , profileDeps = HashSet.insert caller (profileDeps old) }
+         in HashMap.insertWith oldEntry l newEntry profile
+       case r of
+         Done a -> return (Done a)
+         Throw e -> return (Throw e)
+         Blocked k -> return (Blocked (Cont (withLabel l (toHaxl k))))
 
 -- -----------------------------------------------------------------------------
 -- Exceptions

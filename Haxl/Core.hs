@@ -43,6 +43,10 @@ module Haxl.Core (
   ppStats,
   ppRoundStats,
   ppDataSourceRoundStats,
+  Profile,
+  emptyProfile,
+  ProfileLabel,
+  ProfileData(..),
 
   -- ** Tracing flags
   Flags(..),
