@@ -19,6 +19,7 @@ module Haxl.Core.DataCache
   , empty
   , insert
   , insertNotShowable
+  , insertWithShow
   , lookup
   , showCache
   ) where
@@ -70,10 +71,27 @@ insert
   -> DataCache res
   -> DataCache res
 
-insert req result (DataCache m) =
+insert = insertWithShow show show
+
+-- | Inserts a request-result pair into the 'DataCache', with the given
+-- functions used to show the request and result.
+insertWithShow
+  :: (Hashable (req a), Typeable (req a), Eq (req a))
+  => (req a -> String)
+  -- ^ Show function for request
+  -> (a -> String)
+  -- ^ Show function for result
+  -> req a
+  -- ^ Request
+  -> res a
+  -- ^ Result
+  -> DataCache res
+  -> DataCache res
+
+insertWithShow showRequest showResult req result (DataCache m) =
   DataCache $
     HashMap.insertWith fn (typeOf req)
-       (SubCache show show (HashMap.singleton req result)) m
+       (SubCache showRequest showResult (HashMap.singleton req result)) m
   where
     fn (SubCache _ _ new) (SubCache showReq showRes old) =
       SubCache showReq showRes (unsafeCoerce new `HashMap.union` old)
@@ -90,13 +108,7 @@ insertNotShowable
   -> DataCache res
   -> DataCache res
 
-insertNotShowable req result (DataCache m) =
-  DataCache $
-    HashMap.insertWith fn (typeOf req)
-       (SubCache notShowable notShowable (HashMap.singleton req result)) m
-  where
-    fn (SubCache _ _ new) (SubCache showReq showRes old) =
-      SubCache showReq showRes (unsafeCoerce new `HashMap.union` old)
+insertNotShowable = insertWithShow notShowable notShowable
 
 notShowable :: a
 notShowable = error "insertNotShowable"
@@ -116,9 +128,9 @@ lookup req (DataCache m) =
            unsafeCoerce (HashMap.lookup (unsafeCoerce req) sc)
 
 -- | Dumps the contents of the cache, with requests and responses
--- converted to 'String's using 'show'.  The entries are grouped by
--- 'TypeRep'.  Note that this will fail if 'insertNotShowable' has
--- been used to insert any entries.
+-- converted to 'String's using the supplied show functions.  The
+-- entries are grouped by 'TypeRep'.  Note that this will fail if
+-- 'insertNotShowable' has been used to insert any entries.
 --
 showCache
   :: DataCache ResultVar

@@ -14,6 +14,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | The implementation of the 'Haxl' monad.  Most users should
@@ -30,8 +31,8 @@ module Haxl.Core.Monad (
     throw, catch, catchIf, try, tryToHaxlException,
 
     -- * Data fetching and caching
-    dataFetch, uncachedRequest,
-    cacheRequest, cacheResult, cachedComputation,
+    ShowReq, dataFetch, dataFetchWithShow, uncachedRequest, cacheRequest,
+    cacheResult, cacheResultWithShow, cachedComputation,
     dumpCacheAsHaskell, dumpCacheAsHaskellFn,
 
     -- * Unsafe operations
@@ -380,15 +381,25 @@ data CacheResult a
 
 -- | Checks the data cache for the result of a request.
 cached :: (Request r a) => Env u -> r a -> IO (CacheResult a)
-cached env req = do
-  cache <- readIORef (cacheRef env)
+cached = cachedWithInsert DataCache.insert
+
+-- | Show functions for request and its result.
+type ShowReq r a = (Request r a) => (r a -> String, a -> String)
+
+-- | Checks the data cache for the result of a request, inserting new results
+-- with the given function.
+cachedWithInsert :: (Request r a)
+  => (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> Env u
+  -> r a -> IO (CacheResult a)
+cachedWithInsert insertFn env req = do
   let
-    do_fetch = do
+    doFetch insertFn request cache = do
       rvar <- newEmptyResult
-      writeIORef (cacheRef env) $! DataCache.insert req rvar cache
+      writeIORef (cacheRef env) $! insertFn request rvar cache
       return (Uncached rvar)
+  cache <- readIORef (cacheRef env)
   case DataCache.lookup req cache of
-    Nothing -> do_fetch
+    Nothing -> doFetch insertFn req cache
     Just rvar -> do
       mb <- tryReadResult rvar
       case mb of
@@ -402,9 +413,23 @@ cached env req = do
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
 dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u a
-dataFetch req = GenHaxl $ \env ref -> do
+dataFetch = dataFetchWithInsert DataCache.insert
+
+-- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
+-- the given show functions for requests and their results.
+dataFetchWithShow :: (DataSource u r, Request r a) => ShowReq r a
+  -> r a -> GenHaxl u a
+dataFetchWithShow (showReq, showRes) = dataFetchWithInsert
+  (DataCache.insertWithShow showReq showRes)
+
+-- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
+-- the given function to insert requests in the cache.
+dataFetchWithInsert :: (DataSource u r, Request r a)
+  => (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> r a
+  -> GenHaxl u a
+dataFetchWithInsert insertFn req = GenHaxl $ \env ref -> do
   -- First, check the cache
-  res <- cached env req
+  res <- cachedWithInsert insertFn env req
   case res of
     -- Not seen before: add the request to the RequestStore, so it
     -- will be fetched in the next round.
@@ -453,9 +478,23 @@ continueFetch req rvar = GenHaxl $ \_env _ref -> do
 -- the IO operation (except for asynchronous exceptions) are
 -- propagated into the Haxl monad and can be caught by 'catch' and
 -- 'try'.
-cacheResult :: (Request r a)  => r a -> IO a -> GenHaxl u a
-cacheResult req val = GenHaxl $ \env _ref -> do
-  cachedResult <- cached env req
+cacheResult :: (Request r a) => r a -> IO a -> GenHaxl u a
+cacheResult = cacheResultWithInsert DataCache.insert
+
+-- | Transparently provides caching in the same way as 'cacheResult', but uses
+-- the given functions to show requests and their results.
+cacheResultWithShow :: (Request r a) => ShowReq r a -> r a -> IO a
+  -> GenHaxl u a
+cacheResultWithShow (showReq, showRes) = cacheResultWithInsert
+  (DataCache.insertWithShow showReq showRes)
+
+-- Transparently provides caching, using the given function to insert requests
+-- into the cache.
+cacheResultWithInsert :: (Request r a)
+  => (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> r a
+  -> IO a -> GenHaxl u a
+cacheResultWithInsert insertFn req val = GenHaxl $ \env _ref -> do
+  cachedResult <- cachedWithInsert insertFn env req
   case cachedResult of
     Uncached rvar -> do
       result <- Exception.try val
@@ -473,7 +512,6 @@ cacheResult req val = GenHaxl $ \env _ref -> do
       , " the cache was updated incorrectly, or you're calling"
       , " cacheResult on a query that involves a blocking fetch."
       ]
-
 
 -- We must be careful about turning IO monad exceptions into Haxl
 -- exceptions.  An IO monad exception will normally propagate right
