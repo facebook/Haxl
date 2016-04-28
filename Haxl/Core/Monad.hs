@@ -215,6 +215,8 @@ instance Monad (GenHaxl u) where
       Done a       -> unHaxl (k a) env ref
       Throw e      -> return (Throw e)
       Blocked cont -> return (Blocked (cont :>>= k))
+  fail msg = GenHaxl $ \_env _ref ->
+    return $ Throw $ toException $ MonadFail $ Text.pack msg
 
   -- We really want the Applicative version of >>
   (>>) = (*>)
