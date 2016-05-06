@@ -101,9 +101,9 @@ import Haxl.Core.StateStore
 
 -- | Flags that control the operation of the engine.
 data Flags = Flags
-  { trace :: Int
+  { trace :: {-# UNPACK #-} !Int
     -- ^ Tracing level (0 = quiet, 3 = very verbose).
-  , report :: Int
+  , report :: {-# UNPACK #-} !Int
     -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors,
     -- 4 = profiling)
   }

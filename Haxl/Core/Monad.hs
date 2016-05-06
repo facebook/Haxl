@@ -95,7 +95,9 @@ data Env u = Env
                      -- cached data fetches
   , memoRef      :: {-# UNPACK #-} !(IORef (DataCache (MemoVar u)))
                      -- memoized computations
-  , flags        :: Flags
+  , flags        :: !Flags
+                     -- conservatively not unpacking, because this is passed
+                     -- to 'fetch' and would need to be rebuilt.
   , userEnv      :: u
   , statsRef     :: {-# UNPACK #-} !(IORef Stats)
   , profLabel    :: ProfileLabel
