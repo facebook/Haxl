@@ -260,7 +260,7 @@ instance Exception NotFound where
   fromException = logicErrorFromException
 
 -- | Generic \"something had the wrong type\" exception.
-data UnexpectedType = UnexpectedType Text
+newtype UnexpectedType = UnexpectedType Text
   deriving (Typeable, Eq, Show)
 
 instance Exception UnexpectedType where
@@ -268,7 +268,7 @@ instance Exception UnexpectedType where
   fromException = logicErrorFromException
 
 -- | Generic \"input list was empty\" exception.
-data EmptyList = EmptyList Text
+newtype EmptyList = EmptyList Text
   deriving (Typeable, Eq, Show)
 
 instance Exception EmptyList where
@@ -277,7 +277,7 @@ instance Exception EmptyList where
   -- TODO: should be a child of LogicBug
 
 -- | Generic \"Incorrect assumptions about JSON data\" exception.
-data JSONError = JSONError Text
+newtype JSONError = JSONError Text
   deriving (Typeable, Eq, Show)
 
 instance Exception JSONError where
@@ -285,7 +285,7 @@ instance Exception JSONError where
   fromException = logicErrorFromException
 
 -- | Generic \"passing some invalid parameter\" exception.
-data InvalidParameter = InvalidParameter Text
+newtype InvalidParameter = InvalidParameter Text
   deriving (Typeable, Eq, Show)
 
 instance Exception InvalidParameter where
@@ -294,7 +294,7 @@ instance Exception InvalidParameter where
   -- TODO: should be a child of LogicBug
 
 -- | Generic \"fail was called\" exception.
-data MonadFail = MonadFail Text
+newtype MonadFail = MonadFail Text
   deriving (Typeable, Eq, Show)
 
 instance Exception MonadFail where
@@ -302,7 +302,7 @@ instance Exception MonadFail where
   fromException = logicErrorFromException
 
 -- | Generic transient fetching exceptions.
-data FetchError = FetchError Text
+newtype FetchError = FetchError Text
   deriving (Typeable, Eq, Show)
 
 instance Exception FetchError where
@@ -310,7 +310,7 @@ instance Exception FetchError where
   fromException = transientErrorFromException
 
 -- | A data source did something wrong
-data DataSourceError = DataSourceError Text
+newtype DataSourceError = DataSourceError Text
   deriving (Typeable, Eq, Show)
 
 instance Exception DataSourceError where
