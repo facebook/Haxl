@@ -91,13 +91,15 @@ import GHC.Stack
 
 -- | The data we carry around in the Haxl monad.
 data Env u = Env
-  { cacheRef     :: IORef (DataCache ResultVar) -- cached data fetches
-  , memoRef      :: IORef (DataCache (MemoVar u))   -- memoized computations
+  { cacheRef     :: {-# UNPACK #-} !(IORef (DataCache ResultVar))
+                     -- cached data fetches
+  , memoRef      :: {-# UNPACK #-} !(IORef (DataCache (MemoVar u)))
+                     -- memoized computations
   , flags        :: Flags
   , userEnv      :: u
-  , statsRef     :: IORef Stats
+  , statsRef     :: {-# UNPACK #-} !(IORef Stats)
   , profLabel    :: ProfileLabel
-  , profRef      :: IORef Profile
+  , profRef      :: {-# UNPACK #-} !(IORef Profile)
   , states       :: StateStore
   -- ^ Data sources and other components can store their state in
   -- here. Items in this store must be instances of 'StateKey'.
