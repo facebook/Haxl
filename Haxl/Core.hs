@@ -15,7 +15,7 @@ module Haxl.Core (
   -- ** Env
   Env(..), Caches, caches,
   -- *** Operations in the monad
-  env, withEnv,
+  env, withEnv, withLabel,
   -- *** Building the Env
   initEnvWithData, initEnv, emptyEnv,
   -- *** Building the StateStore

@@ -55,7 +55,7 @@ import Control.Exception (SomeAsyncException(..))
 #endif
 #if __GLASGOW_HASKELL__ >= 710
 import Control.Exception (AllocationLimitExceeded(..))
-import GHC.Conc (getAllocationCounter)
+import GHC.Conc (getAllocationCounter, setAllocationCounter)
 #endif
 import Control.Monad
 import qualified Control.Exception as Exception
@@ -311,23 +311,37 @@ withLabel l (GenHaxl m) = GenHaxl $ \env ref ->
        a0 <- getAllocationCounter
        r <- m env{profLabel=l} ref -- what if it throws?
        a1 <- getAllocationCounter
-       let allocs = a0 - a1
-           caller = profLabel env
-       modifyIORef' (profRef env) $ \profile ->
-         let newEntry =
-               ProfileData
-                  { profileAllocs = allocs
-                  , profileDeps = HashSet.singleton caller }
-             oldEntry old _ =
-                ProfileData
-                  { profileAllocs = profileAllocs old + allocs
-                  , profileDeps = HashSet.insert caller (profileDeps old) }
-         in HashMap.insertWith oldEntry l newEntry profile
+       modifyProfileData env l (a0 - a1)
+       -- So we do not count the allocation overhead of modifyProfileData
+       setAllocationCounter a1
        case r of
          Done a -> return (Done a)
          Throw e -> return (Throw e)
          Blocked k -> return (Blocked (Cont (withLabel l (toHaxl k))))
 
+modifyProfileData :: Env u -> ProfileLabel -> AllocCount -> IO ()
+modifyProfileData env label allocs =
+  modifyIORef' (profRef env) $
+    HashMap.insertWith updEntry label newEntry .
+    HashMap.insertWith updCaller caller newCaller
+  where caller = profLabel env
+        newEntry =
+          ProfileData
+            { profileAllocs = allocs
+            , profileDeps = HashSet.singleton caller }
+        updEntry _ old =
+          ProfileData
+            { profileAllocs = profileAllocs old + allocs
+            , profileDeps = HashSet.insert caller (profileDeps old) }
+        -- subtract allocs from caller, so they are not double counted
+        -- we don't know the caller's caller, but it will get set on
+        -- the way back out, so an empty hashset is fine for now
+        newCaller =
+          ProfileData
+            { profileAllocs = (-allocs)
+            , profileDeps = HashSet.empty }
+        updCaller _ old =
+          old { profileAllocs = profileAllocs old - allocs }
 -- -----------------------------------------------------------------------------
 -- Exceptions
 

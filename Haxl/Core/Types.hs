@@ -43,6 +43,7 @@ module Haxl.Core.Types (
   emptyProfile,
   ProfileLabel,
   ProfileData(..),
+  AllocCount,
 
   -- * Data fetching
   DataSource(..),
