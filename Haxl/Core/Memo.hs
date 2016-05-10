@@ -5,8 +5,11 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
-{-# LANGUAGE DeriveDataTypeable, GADTs, OverloadedStrings,
-    StandaloneDeriving #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -- | Most users should import "Haxl.Core" instead of importing this
 -- module directly.
@@ -17,7 +20,9 @@ import Data.Typeable
 import Data.Hashable
 import Data.Word
 
-import Haxl.Core.Monad (GenHaxl, cachedComputation, withLabel)
+import GHC.Prim (Addr#)
+
+import Haxl.Core.Monad (GenHaxl, cachedComputation, withLabel, withFingerprintLabel)
 
 -- -----------------------------------------------------------------------------
 -- A key type that can be used for memoizing computations by a Text key
@@ -64,28 +69,31 @@ memoText key = withLabel key . cachedComputation (MemoText key)
 
 -- | A memo key derived from a 128-bit MD5 hash.  Do not use this directly,
 -- it is for use by automatically-generated memoization.
-
 data MemoFingerprintKey a where
   MemoFingerprintKey
     :: {-# UNPACK #-} !Word64
-    -> {-# UNPACK #-} !Word64  -> MemoFingerprintKey a
+    -> {-# UNPACK #-} !Word64
+    -> Addr# -> Addr#
+    -> MemoFingerprintKey a
   deriving Typeable
 
 deriving instance Eq (MemoFingerprintKey a)
 
 instance Hashable (MemoFingerprintKey a) where
-  hashWithSalt s (MemoFingerprintKey x _) =
+  hashWithSalt s (MemoFingerprintKey x _ _ _) =
     hashWithSalt s (fromIntegral x :: Int)
 
 -- This is optimised for cheap call sites: when we have a call
 --
---   memoFingerprint (MemoFingerprintKey 1234 5678) e
+--   memoFingerprint (MemoFingerprintKey 1234 5678 "module"# "name"#) e
 --
 -- then the MemoFingerprintKey constructor will be statically
--- allocated (with two 64-bit fields), and shared by all calls to
--- memo.  So the memo call will not allocate, unlike memoText.
+-- allocated (with two 64-bit fields and pointers to cstrings for the names),
+-- and shared by all calls to memo. So the memo call will not allocate,
+-- unlike memoText.
 --
 {-# NOINLINE memoFingerprint #-}
 memoFingerprint
   :: Typeable a => MemoFingerprintKey a -> GenHaxl u a -> GenHaxl u a
-memoFingerprint key = cachedComputation key
+memoFingerprint key@(MemoFingerprintKey _ _ mnPtr nPtr) =
+  withFingerprintLabel mnPtr nPtr . cachedComputation key

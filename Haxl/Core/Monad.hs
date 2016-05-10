@@ -11,6 +11,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -22,7 +23,7 @@
 module Haxl.Core.Monad (
     -- * The monad
     GenHaxl (..), runHaxl,
-    env, withEnv, withLabel,
+    env, withEnv, withLabel, withFingerprintLabel,
 
     -- * Env
     Env(..), Caches, caches, initEnvWithData, initEnv, emptyEnv,
@@ -63,7 +64,7 @@ import qualified Control.Exception as Exception
 import Control.Applicative hiding (Const)
 #endif
 import Control.DeepSeq
-import GHC.Exts (IsString(..))
+import GHC.Exts (IsString(..), Addr#)
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif
@@ -303,21 +304,41 @@ withEnv newEnv (GenHaxl m) = GenHaxl $ \_env ref -> do
     Throw e -> return (Throw e)
     Blocked k -> return (Blocked (Cont (withEnv newEnv (toHaxl k))))
 
+-- | Label a computation so profiling data is attributed to the label.
 withLabel :: ProfileLabel -> GenHaxl u a -> GenHaxl u a
 withLabel l (GenHaxl m) = GenHaxl $ \env ref ->
   if report (flags env) < 4
      then m env ref
-     else do
-       a0 <- getAllocationCounter
-       r <- m env{profLabel=l} ref -- what if it throws?
-       a1 <- getAllocationCounter
-       modifyProfileData env l (a0 - a1)
-       -- So we do not count the allocation overhead of modifyProfileData
-       setAllocationCounter a1
-       case r of
-         Done a -> return (Done a)
-         Throw e -> return (Throw e)
-         Blocked k -> return (Blocked (Cont (withLabel l (toHaxl k))))
+     else collectProfileData l m env ref
+
+-- | Label a computation so profiling data is attributed to the label.
+-- Intended only for internal use by 'memoFingerprint'.
+withFingerprintLabel :: Addr# -> Addr# -> GenHaxl u a -> GenHaxl u a
+withFingerprintLabel mnPtr nPtr (GenHaxl m) = GenHaxl $ \env ref ->
+  if report (flags env) < 4
+     then m env ref
+     else collectProfileData
+            (Text.unpackCString# mnPtr <> "." <> Text.unpackCString# nPtr)
+            m env ref
+
+-- | Collect profiling data and attribute it to given label.
+collectProfileData
+  :: ProfileLabel
+  -> (Env u -> IORef (RequestStore u) -> IO (Result u a))
+  -> Env u -> IORef (RequestStore u)
+  -> IO (Result u a)
+collectProfileData l m env ref = do
+   a0 <- getAllocationCounter
+   r <- m env{profLabel=l} ref -- what if it throws?
+   a1 <- getAllocationCounter
+   modifyProfileData env l (a0 - a1)
+   -- So we do not count the allocation overhead of modifyProfileData
+   setAllocationCounter a1
+   case r of
+     Done a -> return (Done a)
+     Throw e -> return (Throw e)
+     Blocked k -> return (Blocked (Cont (withLabel l (toHaxl k))))
+{-# INLINE collectProfileData #-}
 
 modifyProfileData :: Env u -> ProfileLabel -> AllocCount -> IO ()
 modifyProfileData env label allocs =
@@ -342,6 +363,7 @@ modifyProfileData env label allocs =
             , profileDeps = HashSet.empty }
         updCaller _ old =
           old { profileAllocs = profileAllocs old - allocs }
+
 -- -----------------------------------------------------------------------------
 -- Exceptions
 
