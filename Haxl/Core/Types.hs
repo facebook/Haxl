@@ -107,12 +107,17 @@ data Flags = Flags
   , report :: {-# UNPACK #-} !Int
     -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors,
     -- 4 = profiling)
+  , caching :: {-# UNPACK #-} !Int
+    -- ^ Non-zero if caching is enabled.  If caching is disabled, then
+    -- we still do batching and de-duplication within a round, but do
+    -- not cache results between rounds.
   }
 
 defaultFlags :: Flags
 defaultFlags = Flags
   { trace = 0
   , report = 1
+  , caching = 1
   }
 
 -- | Runs an action if the tracing level is above the given threshold.
@@ -125,7 +130,6 @@ ifReport flags i = when (report flags >= i) . void
 
 ifProfiling :: (Functor m, Monad m) => Flags -> m a -> m ()
 ifProfiling flags = when (report flags >= 4) . void
-
 
 -- ---------------------------------------------------------------------------
 -- Stats

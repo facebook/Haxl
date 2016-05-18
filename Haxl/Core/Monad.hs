@@ -271,6 +271,8 @@ runHaxl env h = do
             traceEventIO "START performFetches"
             n' <- performFetches n env bs
             traceEventIO "STOP performFetches"
+            when (caching (flags env) == 0) $
+              writeIORef (cacheRef env) DataCache.empty
             go n' env cont
   traceEventIO "START runHaxl"
   r <- go 0 env (Cont h)
@@ -287,6 +289,8 @@ runHaxl env (GenHaxl haxl) = do
       bs <- readIORef ref
       writeIORef ref noRequests -- Note [RoundId]
       void (performFetches 0 env bs)
+      when (caching (flags env) == 0) $
+        writeIORef (cacheRef env) DataCache.empty
       runHaxl env (toHaxl cont)
 #endif
 

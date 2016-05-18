@@ -12,6 +12,7 @@ import Haxl.Core
 
 import Prelude()
 import Haxl.Prelude
+import Data.IORef
 
 -- -----------------------------------------------------------------------------
 
@@ -138,6 +139,15 @@ cacheReuse = do
   -- ensure no more data fetching rounds needed
   expectRoundsWithEnv 0 12 batching7_ env2
 
+noCaching = do
+  env <- makeTestEnv
+  let env' = env{ flags = (flags env){caching = 0} }
+  result <- runHaxl env' caching3_
+  assertEqual "result" result 18
+  stats <- readIORef (statsRef env)
+  assertEqual "rounds" 2 (numRounds stats)
+  assertEqual "fetches" 4 (numFetches stats)
+
 exceptionTest1 = expectRounds 1 []
   $ withDefault [] $ friendsOf 101
 
@@ -180,6 +190,7 @@ tests = TestList
   , TestLabel "caching2" $ TestCase caching2
   , TestLabel "caching3" $ TestCase caching3
   , TestLabel "CacheReuse" $ TestCase cacheReuse
+  , TestLabel "NoCaching" $ TestCase noCaching
   , TestLabel "exceptionTest1" $ TestCase exceptionTest1
   , TestLabel "exceptionTest2" $ TestCase exceptionTest2
   , TestLabel "deterministicExceptions" $ TestCase deterministicExceptions
