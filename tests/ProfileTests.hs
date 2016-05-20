@@ -15,8 +15,6 @@ import qualified Data.HashSet as HashSet
 
 import TestUtils
 
--- Kick a new sandcastle build
-
 mkProfilingEnv = do
   env <- makeTestEnv
   return env { flags = (flags env) { report = 4 } }
