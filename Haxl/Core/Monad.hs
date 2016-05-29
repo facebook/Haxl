@@ -31,6 +31,7 @@ module Haxl.Core.Monad (
 
     -- * Data fetching and caching
     dataFetch, uncachedRequest,
+    dataFetchSpecialised,
     cacheRequest, cacheResult, cachedComputation,
     dumpCacheAsHaskell,
 
@@ -79,7 +80,7 @@ import Control.Arrow (left)
 import Control.Exception (bracket_)
 import Debug.Trace (traceEventIO)
 #endif
-
+import Unsafe.Coerce
 -- -----------------------------------------------------------------------------
 -- The environment
 
@@ -408,6 +409,56 @@ dataFetch req = GenHaxl $ \env ref -> do
     -- Cached: either a result, or an exception
     Cached (Left ex) -> return (Throw ex)
     Cached (Right a) -> return (Done a)
+
+-- | Sometimes, one request is a special case of a more general
+-- request.  In case the general case has already been requested, we
+-- can avoid scheduling the special request, and determine its result
+-- from the result of the more general request.
+--
+-- An example would be determining the number of some xs (the special
+-- case) and retrieving the xs (the general case).
+dataFetchSpecialised :: forall r a u b . (DataSource u r, Request r a, Request r b)
+                    => (r a -> r b) -- ^ given a request, determine a more general request
+                    -> (b -> a) -- ^ how to ge the special result from the more genereal result
+                    -> r a -- ^ (special) request
+                    -> GenHaxl u a
+dataFetchSpecialised generalise specialise req = GenHaxl $ \ env ref -> do
+  -- first, check if a more general request has already been
+  -- performed.  We don't want to use 'cached' for this, since we
+  -- don't want to add it if it's not there.
+  cache <- readIORef (cacheRef env)
+  case DataCache.lookup (generalise req) cache of
+    Nothing -> do
+      allRequests <- readIORef ref
+      let test (BlockedFetch r _) = unsafeCoerce r == generalise req
+          req' = find test
+                      (requestsOfType (generalise req) allRequests)
+      case req' of
+        Just (BlockedFetch r rvar) ->
+          let r' = unsafeCoerce r :: r b
+              rvar' = unsafeCoerce rvar
+          in return $ Blocked (Cont (continueFetch' specialise r' rvar'))
+        Nothing ->
+          -- the more general request is neither in the cache, nor in
+          -- the RequestStore, just perform the request
+          (unHaxl $ dataFetch req) env ref
+    Just rvar -> do
+      mb <- tryReadResult rvar
+      case mb of
+        Just (Right r) -> return (Done (specialise r))
+        Just (Left ex) -> return (Throw ex)
+        Nothing -> return $
+                  Blocked (Cont (continueFetch' specialise (generalise req) rvar))
+
+continueFetch'
+  :: (DataSource u r, Request r b, Show b)
+  => (b -> a) -> r b -> ResultVar b -> GenHaxl u a
+continueFetch' f req rvar = GenHaxl $ \_env _ref -> do
+  m <- tryReadResult rvar
+  case m of
+    Nothing -> raise . DataSourceError $
+      textShow req <> " did not set contents of result var"
+    Just r -> done (f <$> r)
 
 -- | A data request that is not cached.  This is not what you want for
 -- normal read requests, because then multiple identical requests may

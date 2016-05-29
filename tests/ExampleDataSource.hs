@@ -1,11 +1,11 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 module ExampleDataSource (
     -- * initialise the state
@@ -15,17 +15,19 @@ module ExampleDataSource (
     Id(..), ExampleReq(..),
     countAardvarks,
     listWombats,
+    countWombats
   ) where
 
-import Haxl.Prelude
-import Prelude ()
+import           Haxl.Prelude
+import           Prelude            ()
 
-import Haxl.Core
+import           Haxl.Core
+import           Haxl.Core.Monad    (dataFetchSpecialised)
 
-import Data.Typeable
-import Data.Hashable
-import Control.Concurrent
-import System.IO
+import           Control.Concurrent
+import           Data.Hashable
+import           Data.Typeable
+import           System.IO
 
 -- Here is an example minimal data source.  Our data source will have
 -- two requests:
@@ -45,6 +47,7 @@ instance Show Id where
 data ExampleReq a where
   CountAardvarks :: String -> ExampleReq Int
   ListWombats    :: Id     -> ExampleReq [Id]
+  CountWombats   :: Id     -> ExampleReq Int
   deriving Typeable -- requests must be Typeable
 
 -- The request type (ExampleReq) is parameterized by the result type of
@@ -70,6 +73,7 @@ instance Show1 ExampleReq where show1 = show
 instance Hashable (ExampleReq a) where
    hashWithSalt s (CountAardvarks a) = hashWithSalt s (0::Int,a)
    hashWithSalt s (ListWombats a)    = hashWithSalt s (1::Int,a)
+   hashWithSalt s (CountWombats a)   = hashWithSalt s (2::Int,a)
 
 instance StateKey ExampleReq where
   data State ExampleReq = ExampleState {
@@ -145,7 +149,10 @@ fetch1 (BlockedFetch (ListWombats a) r) =
   if a > 999999
     then putFailure r $ FetchError "too large"
     else putSuccess r $ take (fromIntegral a) [1..]
-
+fetch1 (BlockedFetch (CountWombats a) r) =
+  if a > 999999
+     then putFailure r $ FetchError "too large"
+     else putSuccess r $ fromIntegral a
 
 -- Normally a data source will provide some convenient wrappers for
 -- its requests:
@@ -155,3 +162,11 @@ countAardvarks str = dataFetch (CountAardvarks str)
 
 listWombats :: Id -> GenHaxl () [Id]
 listWombats id = dataFetch (ListWombats id)
+
+countWombats :: Id -> GenHaxl () Int
+countWombats id =
+  let f :: ExampleReq Int -> ExampleReq [Id]
+      f (CountWombats a) = ListWombats a
+      g :: [Id] -> Int
+      g = length
+  in dataFetchSpecialised f g (CountWombats id)

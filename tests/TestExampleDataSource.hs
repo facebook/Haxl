@@ -33,7 +33,8 @@ tests = TestList [
   TestLabel "cachedComputationTest" cachedComputationTest,
   TestLabel "memoTest" memoTest,
   TestLabel "dataSourceExceptionTest" dataSourceExceptionTest,
-  TestLabel "dumpCacheAsHaskell" dumpCacheTest]
+  TestLabel "dumpCacheAsHaskell" dumpCacheTest,
+  TestLabel "specialisedTest" specialisedTest]
 
 -- Let's test ExampleDataSource.
 
@@ -175,3 +176,12 @@ dumpCacheTest = TestCase $ do
   str <- runHaxl env dumpCacheAsHaskell
   loadcache <- readFile "sigma/haxl/core/tests/LoadCache.txt"
   assertEqual "dumpCacheAsHaskell" str loadcache
+
+specialisedTest = TestCase $ do
+  env <- testEnv
+  let env' = env { flags = (flags env){trace = 3} }
+  wombats <- runHaxl env' $ listWombats 5
+  nWombats <- runHaxl env' $ countWombats 5
+  assertEqual "nWombats" (length wombats) nWombats
+  stats <- readIORef (statsRef env)
+  assertEqual "fetches" 1 (numFetches stats)
