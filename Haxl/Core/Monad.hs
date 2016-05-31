@@ -260,7 +260,7 @@ runHaxl env h = do
   let go !n env c = do
         traceEventIO "START computation"
         ref <- newIORef noRequests
-        e <- toHaxl c env ref
+        e <- (unHaxl $ toHaxl c) env ref
         traceEventIO "STOP computation"
         case e of
           Done a       -> return a
