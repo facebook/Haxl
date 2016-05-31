@@ -101,7 +101,7 @@ instance IfThenElse Bool a where
 -- The equality constraint is necessary to convince the typechecker that
 -- this is valid:
 --
--- > if getCountry ip .== "us" then ... else ...
+-- > if ipGetCountry ip .== "us" then ... else ...
 --
 instance (u1 ~ u2) => IfThenElse (GenHaxl u1 Bool) (GenHaxl u2 a) where
   ifThenElse fb t e = do
