@@ -87,6 +87,16 @@ import Debug.Trace (traceEventIO)
 import GHC.Stack
 #endif
 
+#if __GLASGOW_HASKELL__ < 710
+import Data.Int (Int64)
+
+getAllocationCounter :: IO Int64
+getAllocationCounter = return 0
+
+setAllocationCounter :: Int64 -> IO ()
+setAllocationCounter _ = return ()
+#endif
+
 -- -----------------------------------------------------------------------------
 -- The environment
 
