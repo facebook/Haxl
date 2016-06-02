@@ -1,5 +1,5 @@
-{-# LANGUAGE CPP, RebindableSyntax, OverloadedStrings #-}
-module Main where
+{-# LANGUAGE CPP, OverloadedStrings #-}
+module AllTests (allTests) where
 
 import TestExampleDataSource
 import BatchTests
@@ -10,13 +10,10 @@ import AdoTests
 #endif
 import ProfileTests
 
-import Data.String
 import Test.HUnit
 
-import Haxl.Prelude
-
-main :: IO Counts
-main = runTestTT $ TestList
+allTests :: Test
+allTests = TestList
   [ TestLabel "ExampleDataSource" TestExampleDataSource.tests
   , TestLabel "BatchTests" BatchTests.tests
   , TestLabel "CoreTests" CoreTests.tests

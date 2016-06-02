@@ -105,7 +105,7 @@ test-suite test
     tests
 
   main-is:
-    Main.hs
+    TestMain.hs
 
   other-modules:
     BatchTests
