@@ -28,7 +28,7 @@ collectsdata = do
               if length (intersect ["a"::Text, "b"] ["c"]) > 1
               then return 5
               else return (4::Int)
-  profData <- readIORef (profRef env)
+  profData <- profile <$> readIORef (profRef env)
   assertEqual "has data" 3 $ HashMap.size profData
   assertBool "foo allocates" $
     case profileAllocs <$> HashMap.lookup "foo" profData of

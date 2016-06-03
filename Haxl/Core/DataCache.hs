@@ -16,7 +16,7 @@
 module Haxl.Core.DataCache
   ( DataCache(..)
   , SubCache(..)
-  , empty
+  , emptyDataCache
   , insert
   , insertNotShowable
   , insertWithShow
@@ -24,42 +24,15 @@ module Haxl.Core.DataCache
   , showCache
   ) where
 
-import Data.HashMap.Strict (HashMap)
 import Data.Hashable
 import Prelude hiding (lookup)
 import Unsafe.Coerce
 import qualified Data.HashMap.Strict as HashMap
 import Data.Typeable.Internal
 import Data.Maybe
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative hiding (empty)
-#endif
 import Control.Exception
 
 import Haxl.Core.Types
-
--- | The 'DataCache' maps things of type @f a@ to @'ResultVar' a@, for
--- any @f@ and @a@ provided @f a@ is an instance of 'Typeable'. In
--- practice @f a@ will be a request type parameterised by its result.
---
--- See the definition of 'ResultVar' for more details.
-
-newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
-
--- | The implementation is a two-level map: the outer level maps the
--- types of requests to 'SubCache', which maps actual requests to their
--- results.  So each 'SubCache' contains requests of the same type.
--- This works well because we only have to store the dictionaries for
--- 'Hashable' and 'Eq' once per request type.
-data SubCache res =
-  forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
-       SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
-       -- NB. the inner HashMap is strict, to avoid building up
-       -- a chain of thunks during repeated insertions.
-
--- | A new, empty 'DataCache'.
-empty :: DataCache res
-empty = DataCache HashMap.empty
 
 -- | Inserts a request-result pair into the 'DataCache'.
 insert

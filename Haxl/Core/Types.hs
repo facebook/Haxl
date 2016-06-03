@@ -33,6 +33,7 @@ module Haxl.Core.Types (
   RoundStats(..),
   DataSourceRoundStats(..),
   Microseconds,
+  Round,
   emptyStats,
   numRounds,
   numFetches,
@@ -41,8 +42,12 @@ module Haxl.Core.Types (
   ppDataSourceRoundStats,
   Profile,
   emptyProfile,
+  profile,
+  profileRound,
+  profileCache,
   ProfileLabel,
   ProfileData(..),
+  emptyProfileData,
   AllocCount,
 
   -- * Data fetching
@@ -51,6 +56,11 @@ module Haxl.Core.Types (
   Request,
   BlockedFetch(..),
   PerformFetch(..),
+
+  -- * DataCache
+  DataCache(..),
+  SubCache(..),
+  emptyDataCache,
 
   -- * Result variables
   ResultVar(..),
@@ -82,14 +92,18 @@ import Control.Exception
 import Control.Monad
 import Data.Aeson
 import Data.Function (on)
+import Data.Functor.Constant
 import Data.Int
 import Data.Hashable
 import Data.HashMap.Strict (HashMap, toList)
-import Data.HashSet (HashSet)
 import qualified Data.HashMap.Strict as HashMap
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import Data.List (intercalate, sortBy)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Text (Text, unpack)
-import Data.Typeable (Typeable)
+import Data.Typeable.Internal
 
 #if __GLASGOW_HASKELL__ < 708
 import Haxl.Core.Util (tryReadMVar)
@@ -135,6 +149,8 @@ ifProfiling flags = when (report flags >= 4) . void
 -- Stats
 
 type Microseconds = Int
+-- | Rounds are 1-indexed
+type Round = Int
 
 -- | Stats that we collect along the way.
 newtype Stats = Stats [RoundStats]
@@ -144,7 +160,7 @@ newtype Stats = Stats [RoundStats]
 ppStats :: Stats -> String
 ppStats (Stats rss) =
   intercalate "\n" [ "Round: " ++ show i ++ " - " ++ ppRoundStats rs
-                   | (i, rs) <- zip [(1::Int)..] (reverse rss) ]
+                   | (i, rs) <- zip [(1::Round)..] (reverse rss) ]
 
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
@@ -208,18 +224,56 @@ numFetches (Stats rs) = sum (map fetchesInRound rs)
 type ProfileLabel = Text
 type AllocCount = Int64
 
-type Profile = HashMap ProfileLabel ProfileData
+data Profile = Profile
+  { profileRound :: {-# UNPACK #-} !Round
+     -- ^ Keep track of what the current fetch round is.
+  , profile      :: HashMap ProfileLabel ProfileData
+     -- ^ Data on individual labels.
+  , profileCache :: DataCache (Constant Round)
+     -- ^ Keep track of the round requests first appear in.
+  }
+
+emptyProfile :: Profile
+emptyProfile = Profile 1 HashMap.empty emptyDataCache
 
 data ProfileData = ProfileData
   { profileAllocs :: {-# UNPACK #-} !AllocCount
      -- ^ allocations made by this label
   , profileDeps :: HashSet ProfileLabel
      -- ^ labels that this label depends on
+  , profileFetches :: Map Round (HashMap Text Int)
+     -- ^ map from round to {datasource name => fetch count}
   }
   deriving Show
 
-emptyProfile :: Profile
-emptyProfile = HashMap.empty
+emptyProfileData :: ProfileData
+emptyProfileData = ProfileData 0 HashSet.empty Map.empty
+
+-- ---------------------------------------------------------------------------
+-- DataCache
+
+-- | The 'DataCache' maps things of type @f a@ to @'ResultVar' a@, for
+-- any @f@ and @a@ provided @f a@ is an instance of 'Typeable'. In
+-- practice @f a@ will be a request type parameterised by its result.
+--
+-- See the definition of 'ResultVar' for more details.
+
+newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
+
+-- | The implementation is a two-level map: the outer level maps the
+-- types of requests to 'SubCache', which maps actual requests to their
+-- results.  So each 'SubCache' contains requests of the same type.
+-- This works well because we only have to store the dictionaries for
+-- 'Hashable' and 'Eq' once per request type.
+data SubCache res =
+  forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
+       SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
+       -- NB. the inner HashMap is strict, to avoid building up
+       -- a chain of thunks during repeated insertions.
+
+-- | A new, empty 'DataCache'.
+emptyDataCache :: DataCache res
+emptyDataCache = DataCache HashMap.empty
 
 -- ---------------------------------------------------------------------------
 -- DataSource class

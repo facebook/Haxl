@@ -39,7 +39,7 @@ main = do
        m <- newResult 0
        f (n-1) (DataCache.insert (ReqInt n) m cache)
   --
-  cache <- f n DataCache.empty
+  cache <- f n emptyDataCache
   let m = DataCache.lookup (ReqInt (n `div` 2)) cache
   print =<< mapM takeResult m
   t1 <- getCurrentTime

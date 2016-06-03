@@ -68,14 +68,16 @@ import GHC.Exts (IsString(..), Addr#)
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif
+import Data.Functor.Constant
 import Data.Hashable
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
 import Data.IORef
 import Data.List
+import qualified Data.Map as Map
 import Data.Monoid
 import Data.Time
 import Data.Typeable
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
 import Text.Printf
 import Text.PrettyPrint hiding ((<>))
 import Control.Arrow (left)
@@ -143,8 +145,8 @@ initEnvWithData states e (cref, mref) = do
 -- | Initializes an environment with 'StateStore' and an input map.
 initEnv :: StateStore -> u -> IO (Env u)
 initEnv states e = do
-  cref <- newIORef DataCache.empty
-  mref <- newIORef DataCache.empty
+  cref <- newIORef emptyDataCache
+  mref <- newIORef emptyDataCache
   initEnvWithData states e (cref,mref)
 
 -- | A new, empty environment.
@@ -300,7 +302,7 @@ runHaxl env (GenHaxl haxl) = do
       writeIORef ref noRequests -- Note [RoundId]
       void (performFetches 0 env bs)
       when (caching (flags env) == 0) $
-        writeIORef (cacheRef env) DataCache.empty
+        writeIORef (cacheRef env) emptyDataCache
       runHaxl env (toHaxl cont)
 #endif
 
@@ -356,25 +358,24 @@ collectProfileData l m env ref = do
 
 modifyProfileData :: Env u -> ProfileLabel -> AllocCount -> IO ()
 modifyProfileData env label allocs =
-  modifyIORef' (profRef env) $
-    HashMap.insertWith updEntry label newEntry .
-    HashMap.insertWith updCaller caller newCaller
+  modifyIORef' (profRef env) $ \ p ->
+    p { profile =
+          HashMap.insertWith updEntry label newEntry .
+          HashMap.insertWith updCaller caller newCaller $
+          profile p }
   where caller = profLabel env
         newEntry =
-          ProfileData
+          emptyProfileData
             { profileAllocs = allocs
             , profileDeps = HashSet.singleton caller }
         updEntry _ old =
-          ProfileData
-            { profileAllocs = profileAllocs old + allocs
-            , profileDeps = HashSet.insert caller (profileDeps old) }
+          old { profileAllocs = profileAllocs old + allocs
+              , profileDeps = HashSet.insert caller (profileDeps old) }
         -- subtract allocs from caller, so they are not double counted
         -- we don't know the caller's caller, but it will get set on
         -- the way back out, so an empty hashset is fine for now
         newCaller =
-          ProfileData
-            { profileAllocs = (-allocs)
-            , profileDeps = HashSet.empty }
+          emptyProfileData { profileAllocs = -allocs }
         updCaller _ old =
           old { profileAllocs = profileAllocs old - allocs }
 
@@ -518,6 +519,7 @@ dataFetchWithInsert :: (DataSource u r, Request r a)
 dataFetchWithInsert insertFn req = GenHaxl $ \env ref -> do
   -- First, check the cache
   res <- cachedWithInsert insertFn env req
+  ifProfiling (flags env) $ addProfileFetch env req
   case res of
     -- Not seen before: add the request to the RequestStore, so it
     -- will be fetched in the next round.
@@ -533,6 +535,34 @@ dataFetchWithInsert insertFn req = GenHaxl $ \env ref -> do
     -- Cached: either a result, or an exception
     Cached (Left ex) -> return (Throw ex)
     Cached (Right a) -> return (Done a)
+
+addProfileFetch
+  :: (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
+  => Env u -> r a -> IO ()
+addProfileFetch env req = do
+  c <- getAllocationCounter
+  modifyIORef' (profRef env) $ \ p ->
+    let
+      dsName :: Text.Text
+      dsName = dataSourceName req
+
+      upd :: Round -> ProfileData -> ProfileData
+      upd round d =
+        d { profileFetches = Map.alter (Just . f) round (profileFetches d) }
+
+      f Nothing   = HashMap.singleton dsName 1
+      f (Just hm) = HashMap.insertWith (+) dsName 1 hm
+    in case DataCache.lookup req (profileCache p) of
+        Nothing ->
+          let r = profileRound p
+          in p { profile = HashMap.adjust (upd r) (profLabel env) (profile p)
+               , profileCache =
+                  DataCache.insertNotShowable req (Constant r) (profileCache p)
+               }
+        Just (Constant r) ->
+          p { profile = HashMap.adjust (upd r) (profLabel env) (profile p) }
+  -- So we do not count the allocation overhead of addProfileFetch
+  setAllocationCounter c
 
 -- | A data request that is not cached.  This is not what you want for
 -- normal read requests, because then multiple identical requests may
@@ -748,6 +778,9 @@ performFetches n env reqs = do
 
   ifTrace f 1 $
     printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
+
+  ifProfiling f $
+    modifyIORef' (profRef env) $ \ p -> p { profileRound = 1 + profileRound p }
 
   return n'
 

@@ -57,6 +57,7 @@ library
     pretty == 1.1.*,
     text >= 1.1.0.1 && < 1.3,
     time >= 1.4 && < 1.7,
+    transformers,
     unordered-containers == 0.2.*,
     vector >= 0.10 && <0.12
 

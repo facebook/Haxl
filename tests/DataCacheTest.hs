@@ -29,7 +29,7 @@ dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
   let cache =
           DataCache.insert (Req 1 :: TestReq Int) m1 $
           DataCache.insert (Req 2 :: TestReq String) m2 $
-          DataCache.empty
+          emptyDataCache
 
   -- "Req 1" has a result of type Int, so if we try to look it up
   -- with a result of type String, we should get Nothing, not a crash.
