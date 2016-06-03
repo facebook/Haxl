@@ -469,18 +469,29 @@ data CacheResult a
   | Cached (Either SomeException a)
 
 -- | Checks the data cache for the result of a request.
-cached :: (Request r a) => Env u -> r a -> IO (CacheResult a)
-cached = cachedWithInsert DataCache.insert
+cached :: Request r a => Env u -> r a -> IO (CacheResult a)
+cached = cachedWithInsert show DataCache.insert
 
 -- | Show functions for request and its result.
-type ShowReq r a = (Request r a) => (r a -> String, a -> String)
+type ShowReq r a = (r a -> String, a -> String)
+
+-- Note [showFn]
+--
+-- Occasionally, for tracing purposes or generating exceptions, we need to
+-- call 'show' on the request in a place where we *cannot* have a Show
+-- dictionary. (Because the function is a worker which is called by one of
+-- the *WithShow variants that take explicit show functions via a ShowReq
+-- argument.) None of the functions that does this is exported, so this is
+-- hidden from the Haxl user.
 
 -- | Checks the data cache for the result of a request, inserting new results
 -- with the given function.
-cachedWithInsert :: (Request r a)
-  => (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> Env u
+cachedWithInsert
+  :: Typeable (r a)
+  => (r a -> String)    -- See Note [showFn]
+  -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> Env u
   -> r a -> IO (CacheResult a)
-cachedWithInsert insertFn env req = do
+cachedWithInsert showFn insertFn env req = do
   let
     doFetch insertFn request cache = do
       rvar <- newEmptyResult
@@ -496,46 +507,49 @@ cachedWithInsert insertFn env req = do
         -- Use the cached result, even if it was an error.
         Just r -> do
           ifTrace (flags env) 3 $ putStrLn $ case r of
-            Left _ -> "Cached error: " ++ show req
-            Right _ -> "Cached request: " ++ show req
+            Left _ -> "Cached error: " ++ showFn req
+            Right _ -> "Cached request: " ++ showFn req
           return (Cached r)
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
 dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u a
-dataFetch = dataFetchWithInsert DataCache.insert
+dataFetch = dataFetchWithInsert show DataCache.insert
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
 -- the given show functions for requests and their results.
-dataFetchWithShow :: (DataSource u r, Request r a) => ShowReq r a
+dataFetchWithShow :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a)) => ShowReq r a
   -> r a -> GenHaxl u a
-dataFetchWithShow (showReq, showRes) = dataFetchWithInsert
+dataFetchWithShow (showReq, showRes) = dataFetchWithInsert showReq
   (DataCache.insertWithShow showReq showRes)
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
 -- the given function to insert requests in the cache.
-dataFetchWithInsert :: (DataSource u r, Request r a)
-  => (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> r a
+dataFetchWithInsert :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
+  => (r a -> String)    -- See Note [showFn]
+  -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar)
+  -> r a
   -> GenHaxl u a
-dataFetchWithInsert insertFn req = GenHaxl $ \env ref -> do
+dataFetchWithInsert showFn insertFn req = GenHaxl $ \env ref -> do
   -- First, check the cache
-  res <- cachedWithInsert insertFn env req
+  res <- cachedWithInsert showFn insertFn env req
   ifProfiling (flags env) $ addProfileFetch env req
   case res of
     -- Not seen before: add the request to the RequestStore, so it
     -- will be fetched in the next round.
     Uncached rvar -> do
       modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
-      return $ Blocked (Cont (continueFetch req rvar))
+      return $ Blocked (Cont (continueFetch showFn req rvar))
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
     CachedNotFetched rvar -> return
-      $ Blocked (Cont (continueFetch req rvar))
+      $ Blocked (Cont (continueFetch showFn req rvar))
 
     -- Cached: either a result, or an exception
     Cached (Left ex) -> return (Throw ex)
     Cached (Right a) -> return (Done a)
 
+{-# NOINLINE addProfileFetch #-}
 addProfileFetch
   :: (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
   => Env u -> r a -> IO ()
@@ -575,20 +589,20 @@ addProfileFetch env req = do
 -- are done in a safe way - that is, not mixed with reads that might
 -- conflict in the same Haxl computation.
 --
-uncachedRequest :: (DataSource u r, Request r a) => r a -> GenHaxl u a
+uncachedRequest :: (DataSource u r, Show (r a)) => r a -> GenHaxl u a
 uncachedRequest req = GenHaxl $ \_env ref -> do
   rvar <- newEmptyResult
   modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
-  return $ Blocked (Cont (continueFetch req rvar))
+  return $ Blocked (Cont (continueFetch show req rvar))
 
 continueFetch
-  :: (DataSource u r, Request r a, Show a)
-  => r a -> ResultVar a -> GenHaxl u a
-continueFetch req rvar = GenHaxl $ \_env _ref -> do
+  :: (r a -> String)    -- See Note [showFn]
+  -> r a -> ResultVar a -> GenHaxl u a
+continueFetch showFn req rvar = GenHaxl $ \_env _ref -> do
   m <- tryReadResult rvar
   case m of
     Nothing -> raise . DataSourceError $
-      textShow req <> " did not set contents of result var"
+      Text.pack (showFn req) <> " did not set contents of result var"
     Just r -> done r
 
 -- | Transparently provides caching. Useful for datasources that can
@@ -596,23 +610,25 @@ continueFetch req rvar = GenHaxl $ \_env _ref -> do
 -- the IO operation (except for asynchronous exceptions) are
 -- propagated into the Haxl monad and can be caught by 'catch' and
 -- 'try'.
-cacheResult :: (Request r a) => r a -> IO a -> GenHaxl u a
-cacheResult = cacheResultWithInsert DataCache.insert
+cacheResult :: Request r a => r a -> IO a -> GenHaxl u a
+cacheResult = cacheResultWithInsert show DataCache.insert
 
 -- | Transparently provides caching in the same way as 'cacheResult', but uses
 -- the given functions to show requests and their results.
-cacheResultWithShow :: (Request r a) => ShowReq r a -> r a -> IO a
+cacheResultWithShow :: (Eq (r a), Hashable (r a), Typeable (r a)) => ShowReq r a -> r a -> IO a
   -> GenHaxl u a
-cacheResultWithShow (showReq, showRes) = cacheResultWithInsert
+cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
   (DataCache.insertWithShow showReq showRes)
 
 -- Transparently provides caching, using the given function to insert requests
 -- into the cache.
-cacheResultWithInsert :: (Request r a)
-  => (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> r a
+cacheResultWithInsert
+  :: Typeable (r a)
+  => (r a -> String)    -- See Note [showFn]
+  -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> r a
   -> IO a -> GenHaxl u a
-cacheResultWithInsert insertFn req val = GenHaxl $ \env _ref -> do
-  cachedResult <- cachedWithInsert insertFn env req
+cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env _ref -> do
+  cachedResult <- cachedWithInsert showFn insertFn env req
   case cachedResult of
     Uncached rvar -> do
       result <- Exception.try val
@@ -624,7 +640,7 @@ cacheResultWithInsert insertFn req val = GenHaxl $ \env _ref -> do
     CachedNotFetched _ -> corruptCache
   where
     corruptCache = raise . DataSourceError $ Text.concat
-      [ textShow req
+      [ Text.pack (showFn req)
       , " has a corrupted cache value: these requests are meant to"
       , " return immediately without an intermediate value. Either"
       , " the cache was updated incorrectly, or you're calling"
@@ -678,7 +694,7 @@ rethrowAsyncExceptions e
 -- deterministic.
 --
 cacheRequest
-  :: (Request req a) => req a -> Either SomeException a -> GenHaxl u ()
+  :: Request req a => req a -> Either SomeException a -> GenHaxl u ()
 cacheRequest request result = GenHaxl $ \env _ref -> do
   res <- cached env request
   case res of
