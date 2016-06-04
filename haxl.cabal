@@ -92,8 +92,11 @@ test-suite test
     binary,
     bytestring,
     containers,
+    filepath,
     hashable,
     haxl,
+    test-framework,
+    test-framework-hunit,
     text,
     unordered-containers
 

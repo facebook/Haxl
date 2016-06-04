@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, RebindableSyntax, MultiWayIf #-}
+{-# LANGUAGE CPP, OverloadedStrings, RebindableSyntax, MultiWayIf #-}
 module TestExampleDataSource (tests) where
 
 import Haxl.Prelude as Haxl
@@ -11,6 +11,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Test.HUnit
 import Data.IORef
 import Control.Exception
+import System.FilePath
 
 import ExampleDataSource
 import LoadCache
@@ -173,5 +174,7 @@ dumpCacheTest = TestCase $ do
   env <- testEnv
   runHaxl env loadCache
   str <- runHaxl env dumpCacheAsHaskell
-  loadcache <- readFile "sigma/haxl/core/tests/LoadCache.txt"
-  assertEqual "dumpCacheAsHaskell" str loadcache
+  loadcache <- readFile $ dropFileName __FILE__ </> "LoadCache.txt"
+  -- The order of 'cacheRequest ...' calls is nondeterministic and
+  -- differs among GHC versions, so we sort the lines for comparison.
+  assertEqual "dumpCacheAsHaskell" (sort $ lines loadcache) (sort $ lines str)

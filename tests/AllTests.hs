@@ -8,7 +8,9 @@ import DataCacheTest
 #ifdef HAVE_APPLICATIVEDO
 import AdoTests
 #endif
+#if __GLASGOW_HASKELL__ >= 710
 import ProfileTests
+#endif
 
 import Test.HUnit
 
@@ -21,5 +23,7 @@ allTests = TestList
 #ifdef HAVE_APPLICATIVEDO
   , TestLabel "AdoTests" AdoTests.tests
 #endif
+#if __GLASGOW_HASKELL__ >= 710
   , TestLabel "ProfileTests" ProfileTests.tests
+#endif
   ]

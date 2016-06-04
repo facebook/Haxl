@@ -1,8 +1,9 @@
 {-# LANGUAGE CPP, OverloadedStrings #-}
 module Main where
 
-import Test.HUnit
+import Test.Framework (defaultMain)
+import Test.Framework.Providers.HUnit (hUnitTestToTests)
 import AllTests
 
-main :: IO Counts
-main = runTestTT allTests
+main :: IO ()
+main = defaultMain $ hUnitTestToTests allTests
