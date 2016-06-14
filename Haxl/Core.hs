@@ -57,6 +57,7 @@ module Haxl.Core (
   defaultFlags,
   ifTrace,
   ifReport,
+  ifProfiling,
 
   -- * Building data sources
   DataSource(..),
