@@ -379,6 +379,12 @@ modifyProfileData env label allocs =
         updCaller _ old =
           old { profileAllocs = profileAllocs old - allocs }
 
+incrementMemoHitCounterFor :: ProfileLabel -> Profile -> Profile
+incrementMemoHitCounterFor lbl p =
+  p { profile = HashMap.adjust incrementMemoHitCounter lbl (profile p) }
+
+incrementMemoHitCounter :: ProfileData -> ProfileData
+incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
 -- -----------------------------------------------------------------------------
 -- Exceptions
 
@@ -919,6 +925,8 @@ cachedComputation
 
 cachedComputation req haxl = GenHaxl $ \env ref -> do
   cache <- readIORef (memoRef env)
+  ifProfiling (flags env) $
+    modifyIORef' (profRef env) (incrementMemoHitCounterFor (profLabel env))
   case DataCache.lookup req cache of
     Nothing -> do
       memovar <- newIORef (MemoInProgress ref haxl)

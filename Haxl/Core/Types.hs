@@ -49,6 +49,7 @@ module Haxl.Core.Types (
   ProfileData(..),
   emptyProfileData,
   AllocCount,
+  MemoHitCount,
 
   -- * Data fetching
   DataSource(..),
@@ -223,6 +224,7 @@ numFetches (Stats rs) = sum (map fetchesInRound rs)
 
 type ProfileLabel = Text
 type AllocCount = Int64
+type MemoHitCount = Int64
 
 data Profile = Profile
   { profileRound :: {-# UNPACK #-} !Round
@@ -243,11 +245,13 @@ data ProfileData = ProfileData
      -- ^ labels that this label depends on
   , profileFetches :: Map Round (HashMap Text Int)
      -- ^ map from round to {datasource name => fetch count}
+  , profileMemoHits :: {-# UNPACK #-} !MemoHitCount
+    -- ^ number of hits to memoized computation at this label
   }
   deriving Show
 
 emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 HashSet.empty Map.empty
+emptyProfileData = ProfileData 0 HashSet.empty Map.empty 0
 
 -- ---------------------------------------------------------------------------
 -- DataCache
