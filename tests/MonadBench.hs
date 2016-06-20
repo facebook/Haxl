@@ -5,9 +5,12 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+-- | Benchmarking tool for core performance characteristics of the Haxl monad.
+
 module MonadBench (main) where
 
 import Control.Monad
+import Data.List as List
 import Data.Time.Clock
 import System.Environment
 import System.Exit
@@ -47,8 +50,17 @@ main = do
        foldl andThen (return []) (map listWombats [1.. fromIntegral n])
        return ()
     "tree" -> runHaxl env $ void $ tree n
+    -- No memoization
+    "memo0" -> runHaxl env $
+      Haxl.sequence_ [unionWombats | _ <- [1..n]]
+    -- One put, N gets.
+    "memo1" -> runHaxl env $
+      Haxl.sequence_ [memo (42 :: Int) unionWombats | _ <- [1..n]]
+    -- N puts, N gets.
+    "memo2" -> runHaxl env $
+      Haxl.sequence_ [memo (i :: Int) unionWombats | i <- [1..n]]
     _ -> do
-      hPutStrLn stderr "syntax: monadbench par1|par2|seqr|seql NUM"
+      hPutStrLn stderr "syntax: monadbench par1|par2|seqr|seql|memo0|memo1|memo2 NUM"
       exitWith (ExitFailure 1)
   t1 <- getCurrentTime
   printf "%d reqs: %.2fs\n" n (realToFrac (t1 `diffUTCTime` t0) :: Double)
@@ -62,3 +74,6 @@ tree n = concat <$> Haxl.sequence
   [ tree (n-1)
   , listWombats (fromIntegral n), tree (n-1)
   ]
+
+unionWombats :: GenHaxl () [Id]
+unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..100]
