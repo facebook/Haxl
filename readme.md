@@ -39,7 +39,7 @@ Graph API.
  * [The N+1 Selects Problem](example/sql/readme.md) explains how Haxl
    can address a common performance problem with SQL queries by
    automatically batching multiple queries into a single query,
-   completely invisible to the programmer.
+   without the programmer having to specify this behavior.
 
  * [Haxl Documentation](http://hackage.haskell.org/package/haxl) on
    Hackage.
