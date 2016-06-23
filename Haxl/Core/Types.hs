@@ -136,14 +136,14 @@ defaultFlags = Flags
   }
 
 -- | Runs an action if the tracing level is above the given threshold.
-ifTrace :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
+ifTrace :: (Monad m) => Flags -> Int -> m a -> m ()
 ifTrace flags i = when (trace flags >= i) . void
 
 -- | Runs an action if the report level is above the given threshold.
-ifReport :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
+ifReport :: (Monad m) => Flags -> Int -> m a -> m ()
 ifReport flags i = when (report flags >= i) . void
 
-ifProfiling :: (Functor m, Monad m) => Flags -> m a -> m ()
+ifProfiling :: (Monad m) => Flags -> m a -> m ()
 ifProfiling flags = when (report flags >= 4) . void
 
 -- ---------------------------------------------------------------------------
