@@ -729,6 +729,7 @@ performFetches n env reqs = do
       !n' = n + length jobs
 
   t0 <- getCurrentTime
+  a0 <- getAllocationCounter
 
   let
     roundstats =
@@ -763,10 +764,10 @@ performFetches n env reqs = do
 
   fetches <- mapM applyFetch $ zip [n..] jobs
 
-  times <-
+  deepStats <-
     if report f >= 2
     then do
-      (refs, timedfetches) <- mapAndUnzipM wrapFetchInTimer fetches
+      (refs, timedfetches) <- mapAndUnzipM wrapFetchInStats fetches
       scheduleFetches timedfetches
       mapM (fmap Just . readIORef) refs
     else do
@@ -786,17 +787,22 @@ performFetches n env reqs = do
 
   let dsroundstats = HashMap.fromList
          [ (name, DataSourceRoundStats { dataSourceFetches = dsfetch
-                                       , dataSourceTime = time
+                                       , dataSourceTime = fst <$> dsStats
+                                       , dataSourceAllocation = snd <$> dsStats
                                        , dataSourceFailures = dsfailure
                                        })
-         | ((name, dsfetch), time, dsfailure) <- zip3 roundstats times failures]
+         | ((name, dsfetch), dsStats, dsfailure) <-
+             zip3 roundstats deepStats failures]
 
+  a1 <- getAllocationCounter
   t1 <- getCurrentTime
-  let roundtime = realToFrac (diffUTCTime t1 t0) :: Double
+  let
+    roundtime = realToFrac (diffUTCTime t1 t0) :: Double
+    allocation = fromIntegral $ a0 - a1
 
   ifReport f 1 $
     modifyIORef' sref $ \(Stats rounds) -> roundstats `deepseq`
-      Stats (RoundStats (microsecs roundtime) dsroundstats: rounds)
+      Stats (RoundStats (microsecs roundtime) allocation dsroundstats: rounds)
 
   ifTrace f 1 $
     printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
@@ -830,17 +836,24 @@ wrapFetchInCatch reqs fetch =
       void $ tryTakeResult rvar
       putResult rvar (except e)
 
-wrapFetchInTimer :: PerformFetch -> IO (IORef Microseconds, PerformFetch)
-wrapFetchInTimer f = do
-  r <- newIORef 0
+wrapFetchInStats :: PerformFetch -> IO (IORef (Microseconds, Int), PerformFetch)
+wrapFetchInStats f = do
+  r <- newIORef (0, 0)
   case f of
-    SyncFetch io -> return (r, SyncFetch (time io >>= writeIORef r))
+    SyncFetch io -> return (r, SyncFetch (statsForIO io >>= writeIORef r))
     AsyncFetch f -> do
-       inner_r <- newIORef 0
+       inner_r <- newIORef (0, 0)
        return (r, AsyncFetch $ \inner -> do
-         total <- time (f (time inner >>= writeIORef inner_r))
-         inner_t <- readIORef inner_r
-         writeIORef r (total - inner_t))
+         (totalTime, totalAlloc) <-
+           statsForIO (f (statsForIO inner >>= writeIORef inner_r))
+         (innerTime, innerAlloc) <- readIORef inner_r
+         writeIORef r (totalTime - innerTime, totalAlloc - innerAlloc))
+  where
+    statsForIO io = do
+      prevAlloc <- getAllocationCounter
+      t <- time io
+      postAlloc <- getAllocationCounter
+      return (t, fromIntegral $ prevAlloc - postAlloc)
 
 wrapFetchInTrace :: Int -> Int -> Text.Text -> PerformFetch -> PerformFetch
 #ifdef EVENTLOG

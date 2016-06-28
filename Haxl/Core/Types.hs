@@ -168,19 +168,21 @@ ppStats (Stats rss) =
 -- round.
 data RoundStats = RoundStats
   { roundTime :: Microseconds
+  , roundAllocation :: Int
   , roundDataSources :: HashMap Text DataSourceRoundStats
   }
 
 -- | Pretty-print RoundStats.
 ppRoundStats :: RoundStats -> String
-ppRoundStats (RoundStats t dss) =
-    show t ++ "us\n"
+ppRoundStats (RoundStats t a dss) =
+    show t ++ "us " ++ show a ++ " bytes\n"
       ++ unlines [ "  " ++ unpack nm ++ ": " ++ ppDataSourceRoundStats dsrs
                  | (nm, dsrs) <- sortBy (compare `on` fst) (toList dss) ]
 
 instance ToJSON RoundStats where
   toJSON RoundStats{..} = object
     [ "time" .= roundTime
+    , "allocation" .= roundAllocation
     , "dataSources" .= roundDataSources
     ]
 
@@ -189,12 +191,14 @@ data DataSourceRoundStats = DataSourceRoundStats
   { dataSourceFetches :: Int
   , dataSourceTime :: Maybe Microseconds
   , dataSourceFailures :: Maybe Int
+  , dataSourceAllocation :: Maybe Int
   }
 
 -- | Pretty-print DataSourceRoundStats
 ppDataSourceRoundStats :: DataSourceRoundStats -> String
-ppDataSourceRoundStats (DataSourceRoundStats fetches time failures) =
+ppDataSourceRoundStats (DataSourceRoundStats fetches time failures allocs) =
   maybe id (\t s -> s ++ " (" ++ show t ++ "us)") time $
+  maybe id (\a s -> s ++ " (" ++ show a ++ " bytes)") allocs $
   maybe id (\f s -> s ++ " " ++ show f ++ " failures") failures $
   show fetches ++ " fetches"
 
@@ -203,10 +207,11 @@ instance ToJSON DataSourceRoundStats where
     [ ("fetches", Just dataSourceFetches)
     , ("time", dataSourceTime)
     , ("failures", dataSourceFailures)
+    , ("allocation", dataSourceAllocation)
     ]]
 
 fetchesInRound :: RoundStats -> Int
-fetchesInRound (RoundStats _ hm) =
+fetchesInRound (RoundStats _ _ hm) =
   sum $ map dataSourceFetches $ HashMap.elems hm
 
 emptyStats :: Stats
