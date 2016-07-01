@@ -11,6 +11,7 @@ import AdoTests
 #if __GLASGOW_HASKELL__ >= 710
 import ProfileTests
 #endif
+import MemoizationTests
 
 import Test.HUnit
 
@@ -26,4 +27,5 @@ allTests = TestList
 #if __GLASGOW_HASKELL__ >= 710
   , TestLabel "ProfileTests" ProfileTests.tests
 #endif
+  , TestLabel "MemoizationTests" MemoizationTests.tests
   ]

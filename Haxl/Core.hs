@@ -30,7 +30,7 @@ module Haxl.Core (
   dumpCacheAsHaskell,
 
   -- ** Memoization
-  memo, memoFingerprint, MemoFingerprintKey(..),
+  memo, memoFingerprint, MemoFingerprintKey(..), newMemo, runMemo,
 
   -- ** Statistics
   Stats(..),

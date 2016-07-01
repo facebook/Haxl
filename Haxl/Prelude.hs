@@ -32,7 +32,7 @@ module Haxl.Prelude (
     module Prelude,
 
     -- * Haxl and Fetching data
-    GenHaxl, dataFetch, DataSource, memo,
+    GenHaxl, dataFetch, DataSource, memo, newMemo, prepareMemo, newMemoWith, runMemo,
 
     -- * Extra Monad and Applicative things
     Applicative(..),
@@ -70,7 +70,7 @@ import Haxl.Core.Memo
 import Haxl.Core.Monad
 
 import Control.Applicative
-import Control.Monad (foldM, join)
+import Control.Monad (foldM, join, void)
 import Data.List (foldl', sort)
 import Data.Text (Text)
 import Data.Traversable hiding (forM, mapM, sequence)
@@ -174,7 +174,7 @@ forM = flip mapM
 
 -- | See 'mapM'.
 mapM_ :: (Traversable t, Applicative f) => (a -> f b) -> t a -> f ()
-mapM_ f t = const () <$> traverse f t
+mapM_ f t = void $ traverse f t
 
 forM_ :: (Traversable t, Applicative f) => t a -> (a -> f b) -> f ()
 forM_ = flip mapM_
@@ -185,7 +185,7 @@ sequence = sequenceA
 
 -- | See 'mapM'.
 sequence_ :: (Traversable t, Applicative f) => t (f a) -> f ()
-sequence_ t = const () <$> sequenceA t
+sequence_ t = void $ sequenceA t
 
 -- | See 'mapM'.
 filterM :: (Applicative f, Monad f) => (a -> f Bool) -> [a] -> f [a]

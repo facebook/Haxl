@@ -59,6 +59,12 @@ main = do
     -- N puts, N gets.
     "memo2" -> runHaxl env $
       Haxl.sequence_ [memo (i :: Int) unionWombats | i <- [1..n]]
+    "memo3" ->
+      runHaxl env $ do
+        ref <- newMemoWith unionWombats
+        let c = runMemo ref
+        Haxl.sequence_ [c | _ <- [1..n]]
+
     _ -> do
       hPutStrLn stderr "syntax: monadbench par1|par2|seqr|seql|memo0|memo1|memo2 NUM"
       exitWith (ExitFailure 1)
@@ -76,4 +82,4 @@ tree n = concat <$> Haxl.sequence
   ]
 
 unionWombats :: GenHaxl () [Id]
-unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..100]
+unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..1000]

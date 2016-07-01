@@ -34,6 +34,7 @@ module Haxl.Core.Monad (
     -- * Data fetching and caching
     ShowReq, dataFetch, dataFetchWithShow, uncachedRequest, cacheRequest,
     cacheResult, cacheResultWithShow, cachedComputation,
+    newMemo, newMemoWith, prepareMemo, runMemo,
     dumpCacheAsHaskell, dumpCacheAsHaskellFn,
 
     -- * Unsafe operations
@@ -81,10 +82,12 @@ import Data.Typeable
 import Text.Printf
 import Text.PrettyPrint hiding ((<>))
 import Control.Arrow (left)
+
 #ifdef EVENTLOG
 import Control.Exception (bracket_)
 import Debug.Trace (traceEventIO)
 #endif
+
 #ifdef PROFILING
 import GHC.Stack
 #endif
@@ -385,6 +388,7 @@ incrementMemoHitCounterFor lbl p =
 
 incrementMemoHitCounter :: ProfileData -> ProfileData
 incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
+
 -- -----------------------------------------------------------------------------
 -- Exceptions
 
@@ -903,13 +907,20 @@ newtype MemoVar u a = MemoVar (IORef (MemoStatus u a))
 
 -- | The state of a memoized computation
 data MemoStatus u a
+  -- | Memoized computation under evaluation. The memo was last evaluated during
+  -- the given round, or never, if the given round is Nothing. The continuation
+  -- might be slightly out of date, but that's fine; the worst that can happen
+  -- is we do a little extra work.
   = MemoInProgress (RoundId u) (GenHaxl u a)
-      -- ^ Under evaluation in the given round, here is the latest
-      -- continuation.  The continuation might be a little out of
-      -- date, but that's fine, the worst that can happen is we do a
-      -- little extra work.
+
+  -- | A fully evaluated memo; here is the result.
   | MemoDone (Either SomeException a)
-      -- fully evaluated, here is the result.
+
+  -- | A new memo, with a stored computation. Not empty, but has not been run yet.
+  | MemoNew (GenHaxl u a)
+
+  -- | An empty memo; must be prepared before being run.
+  | MemoEmpty
 
 type RoundId u = IORef (RequestStore u)
 {-
@@ -935,7 +946,6 @@ cachedComputation
       , Hashable (req a)
       , Typeable (req a))
    => req a -> GenHaxl u a -> GenHaxl u a
-
 cachedComputation req haxl = GenHaxl $ \env ref -> do
   cache <- readIORef (memoRef env)
   ifProfiling (flags env) $
@@ -949,7 +959,9 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
     Just (MemoVar memovar) -> do
       status <- readIORef memovar
       case status of
+        MemoEmpty -> run memovar haxl env ref
         MemoDone r -> done r
+        MemoNew cont -> run memovar cont env ref
         MemoInProgress round cont
           | round == ref -> return (Blocked (Cont (retryMemo req)))
           | otherwise    -> run memovar cont env ref
@@ -993,7 +1005,6 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
 done :: Either SomeException a -> IO (Result u a)
 done = return . either Throw Done
 
-
 -- -----------------------------------------------------------------------------
 
 -- | Dump the contents of the cache as Haskell code that, when
@@ -1028,3 +1039,108 @@ dumpCacheAsHaskellFn fnName fnType = do
     text (fnName ++ " = do") $$
       nest 2 (vcat (map mk_cr (concatMap snd entries))) $$
     text "" -- final newline
+
+-- | Create a new @MemoVar@ for storing a memoized computation. The created
+-- @MemoVar@ is initially empty, not tied to any specific computation. Running
+-- this memo (with @runMemo@) without preparing it first (with @prepareMemo@)
+-- will result in an exception.
+newMemo :: GenHaxl u (MemoVar u a)
+newMemo = unsafeLiftIO $ MemoVar <$> newIORef MemoEmpty
+
+-- | Store a computation within a supplied @MemoVar@. Any memo stored within the
+-- @MemoVar@ already (regardless of completion) will be discarded, in favor of
+-- the supplied computation. A @MemoVar@ must be prepared before it is run.
+prepareMemo :: MemoVar u a -> GenHaxl u a -> GenHaxl u ()
+prepareMemo (MemoVar memoRef) memoCmp
+  = unsafeLiftIO $ writeIORef memoRef (MemoNew memoCmp)
+
+-- | Convenience function, combines @newMemo@ and @prepareMemo@.
+newMemoWith :: GenHaxl u a -> GenHaxl u (MemoVar u a)
+newMemoWith memoCmp = do
+  memoVar <- newMemo
+  prepareMemo memoVar memoCmp
+  return memoVar
+
+-- | Continue the memoized computation within a given @MemoVar@.
+-- Notes:
+--   1. If the memo contains a complete result, return that result.
+--   2. If the memo contains an in-progress computation, continue it as far as
+--      possible for this round.
+--   3. If the memo is empty (it was not prepared), throw an error.
+--
+-- For example, to memoize the computation @one@ given by:
+--
+-- one :: Haxl Int
+-- one = return 1
+--
+-- use:
+--
+-- do
+--   oneMemo <- newMemoWith one
+--   let memoizedOne = runMemo aMemo one
+--   oneResult <- memoizedOne
+--
+-- To memoize mutually dependent computations such as in:
+--
+-- h :: Haxl Int
+-- h = do
+--   a <- f
+--   b <- g
+--   return (a + b)
+--  where
+--   f = return 42
+--   g = succ <$> f
+--
+-- without needing to reorder them, use:
+--
+-- h :: Haxl Int
+-- h = do
+--   fMemoRef <- newMemo
+--   gMemoRef <- newMemo
+--
+--   let f = runMemo fMemoRef
+--       g = runMemo gMemoRef
+--
+--   prepareMemo fMemoRef $ return 42
+--   prepareMemo gMemoRef $ succ <$> f
+--
+--   a <- f
+--   b <- g
+--   return (a + b)
+runMemo :: MemoVar u a -> GenHaxl u a
+runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID -> do
+  stored <- readIORef memoRef
+  case stored of
+    -- The memo is complete.
+    MemoDone result -> done result
+    -- Memo was not prepared first; throw an exception.
+    MemoEmpty -> raise $ CriticalError "Attempting to run empty memo."
+    -- Memo has just been prepared, run it.
+    MemoNew cont -> runContToMemo cont env rID
+    -- The memo is in progress, there *may* be progress to be made.
+    MemoInProgress rID' cont
+      -- The last update was performed *this* round and is still in progress;
+      -- nothing further can be done this round. Wait until the next round.
+      | rID' == rID -> return (Blocked $ Cont retryMemo)
+      -- This is the first time this memo is being run during this round, or at
+      -- all. Enough progress may have been made to continue running the memo.
+      | otherwise -> runContToMemo cont env rID
+ where
+  -- Continuation to retry an existing memo. It is not possible to *retry* an
+  -- empty memo; that will throw an exception during the next round.
+  retryMemo = runMemo memoVar
+
+  -- Run a continuation and store the result in the memo reference. This
+  -- includes any exceptions that might have been thrown, so that they may be
+  -- rethrown when the memo is accessed. If the memo is incomplete by the end of
+  -- this round, update its progress indicator to the current round and block.
+  runContToMemo cont env rID = do
+    result <- unHaxl cont env rID
+    case result of
+      Done a -> finalize (Right a)
+      Throw e -> finalize (Left e)
+      Blocked c -> do
+        writeIORef memoRef (MemoInProgress rID (toHaxl c))
+        return (Blocked $ Cont retryMemo)
+
+  finalize r = writeIORef memoRef (MemoDone r) >> done r
