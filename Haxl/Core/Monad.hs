@@ -521,6 +521,19 @@ cachedWithInsert showFn insertFn env req = do
             Right _ -> "Cached request: " ++ showFn req
           return (Cached r)
 
+-- | Record the call stack for a data fetch in the Stats.  Only useful
+-- when profiling.
+logFetch :: Env u -> (r a -> String) -> r a -> IO ()
+#ifdef PROFILING
+logFetch env showFn req = do
+  ifReport (flags env) 5 $ do
+    stack <- currentCallStack
+    modifyIORef' (statsRef env) $ \(Stats s) ->
+      Stats (FetchCall (showFn req) stack : s)
+#else
+logFetch _ _ _ = return ()
+#endif
+
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
 dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u a
 dataFetch = dataFetchWithInsert show DataCache.insert
@@ -547,13 +560,14 @@ dataFetchWithInsert showFn insertFn req = GenHaxl $ \env ref -> do
     -- Not seen before: add the request to the RequestStore, so it
     -- will be fetched in the next round.
     Uncached rvar -> do
+      logFetch env showFn req
       modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
       return $ Blocked (Cont (continueFetch showFn req rvar))
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
-    CachedNotFetched rvar -> return
-      $ Blocked (Cont (continueFetch showFn req rvar))
+    CachedNotFetched rvar ->
+      return (Blocked (Cont (continueFetch showFn req rvar)))
 
     -- Cached: either a result, or an exception
     Cached (Left ex) -> return (Throw ex)

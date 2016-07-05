@@ -121,7 +121,7 @@ data Flags = Flags
     -- ^ Tracing level (0 = quiet, 3 = very verbose).
   , report :: {-# UNPACK #-} !Int
     -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors,
-    -- 4 = profiling)
+    -- 4 = profiling, 5 = log stack traces of dataFetch calls)
   , caching :: {-# UNPACK #-} !Int
     -- ^ Non-zero if caching is enabled.  If caching is disabled, then
     -- we still do batching and de-duplication within a round, but do
@@ -160,17 +160,29 @@ newtype Stats = Stats [RoundStats]
 -- | Pretty-print Stats.
 ppStats :: Stats -> String
 ppStats (Stats rss) =
-  intercalate "\n" [ "Round: " ++ show i ++ " - " ++ ppRoundStats rs
-                   | (i, rs) <- zip [(1::Round)..] (reverse rss) ]
+  intercalate "\n"
+     [ "Round: " ++ show i ++ " - " ++ ppRoundStats rs
+     | (i, rs) <- zip [(1::Int)..] (filter isRoundStats (reverse rss)) ]
+ where
+  isRoundStats RoundStats{} = True
+  isRoundStats _ = False
 
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
 -- round.
-data RoundStats = RoundStats
-  { roundTime :: Microseconds
-  , roundAllocation :: Int
-  , roundDataSources :: HashMap Text DataSourceRoundStats
-  }
+data RoundStats
+    -- | Timing stats for a round of data fetching
+  = RoundStats
+    { roundTime :: Microseconds
+    , roundAllocation :: Int
+    , roundDataSources :: HashMap Text DataSourceRoundStats
+    }
+    -- | The stack trace of a call to 'dataFetch'.  These are collected
+    -- only when profiling and reportLevel is 5 or greater.
+  | FetchCall
+    { fetchReq :: String
+    , fetchStack :: [String]
+    }
 
 -- | Pretty-print RoundStats.
 ppRoundStats :: RoundStats -> String
@@ -178,12 +190,17 @@ ppRoundStats (RoundStats t a dss) =
     show t ++ "us " ++ show a ++ " bytes\n"
       ++ unlines [ "  " ++ unpack nm ++ ": " ++ ppDataSourceRoundStats dsrs
                  | (nm, dsrs) <- sortBy (compare `on` fst) (toList dss) ]
+ppRoundStats (FetchCall r ss) = show r ++ '\n':show ss
 
 instance ToJSON RoundStats where
   toJSON RoundStats{..} = object
     [ "time" .= roundTime
     , "allocation" .= roundAllocation
     , "dataSources" .= roundDataSources
+    ]
+  toJSON (FetchCall req strs) = object
+    [ "request" .= req
+    , "stack" .= strs
     ]
 
 -- | Detailed stats of each data source in each round.
@@ -213,12 +230,13 @@ instance ToJSON DataSourceRoundStats where
 fetchesInRound :: RoundStats -> Int
 fetchesInRound (RoundStats _ _ hm) =
   sum $ map dataSourceFetches $ HashMap.elems hm
+fetchesInRound _ = 0
 
 emptyStats :: Stats
 emptyStats = Stats []
 
 numRounds :: Stats -> Int
-numRounds (Stats rs) = length rs
+numRounds (Stats rs) = length [ s | s@RoundStats{} <- rs ]
 
 numFetches :: Stats -> Int
 numFetches (Stats rs) = sum (map fetchesInRound rs)
