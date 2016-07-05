@@ -188,7 +188,7 @@ sequence_ :: (Traversable t, Applicative f) => t (f a) -> f ()
 sequence_ t = void $ sequenceA t
 
 -- | See 'mapM'.
-filterM :: (Applicative f, Monad f) => (a -> f Bool) -> [a] -> f [a]
+filterM :: (Monad f) => (a -> f Bool) -> [a] -> f [a]
 filterM pred xs = do
   bools <- mapM pred xs
   return [ x | (x,True) <- zip xs bools ]

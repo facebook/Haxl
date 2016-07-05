@@ -986,7 +986,7 @@ cachedComputation req haxl = GenHaxl $ \env ref -> do
   -- continuation: just try to evaluate the memo again.  We know it is
   -- already in the cache (because we just checked), so the computation
   -- will never be used.
-  retryMemo :: (Typeable (req a)) => req a -> GenHaxl u a
+  retryMemo :: req a -> GenHaxl u a
   retryMemo req =
    cachedComputation req (throw (CriticalError "retryMemo"))
 
