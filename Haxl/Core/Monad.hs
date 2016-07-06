@@ -960,60 +960,19 @@ cachedComputation
       , Hashable (req a)
       , Typeable (req a))
    => req a -> GenHaxl u a -> GenHaxl u a
-cachedComputation req haxl = GenHaxl $ \env ref -> do
-  cache <- readIORef (memoRef env)
-  ifProfiling (flags env) $
+cachedComputation req haxl = do
+  env <- env id
+  cache <- unsafeLiftIO $ readIORef (memoRef env)
+  unsafeLiftIO $ ifProfiling (flags env) $
     modifyIORef' (profRef env) (incrementMemoHitCounterFor (profLabel env))
-  case DataCache.lookup req cache of
-    Nothing -> do
-      memovar <- newIORef (MemoInProgress ref haxl)
-      writeIORef (memoRef env) $!
-        DataCache.insertNotShowable req (MemoVar memovar) cache
-      run memovar haxl env ref
-    Just (MemoVar memovar) -> do
-      status <- readIORef memovar
-      case status of
-        MemoEmpty -> run memovar haxl env ref
-        MemoDone r -> done r
-        MemoNew cont -> run memovar cont env ref
-        MemoInProgress round cont
-          | round == ref -> return (Blocked (Cont (retryMemo req)))
-          | otherwise    -> run memovar cont env ref
-          -- was blocked in a previous round; run the saved continuation to
-          -- make more progress.
- where
-  -- If we got blocked on this memo in the current round, this is the
-  -- continuation: just try to evaluate the memo again.  We know it is
-  -- already in the cache (because we just checked), so the computation
-  -- will never be used.
-  retryMemo :: (Typeable (req a)) => req a -> GenHaxl u a
-  retryMemo req =
-   cachedComputation req (throw (CriticalError "retryMemo"))
-
-  -- Run the memoized computation and store the result (complete or
-  -- partial) back in the MemoVar afterwards.
- --
- -- We don't attempt to catch IO monad exceptions here.  That may seem
- -- dangerous, because if an IO exception is raised we'll leave the
- -- MemoInProgress in the MemoVar.  But we always want to just
- -- propagate an IO monad exception (it should kill the whole runHaxl,
- -- unless there's a unsafeToHaxlException), so we should never be
- -- looking at the MemoVar again anyway.  Furthermore, storing the
- -- exception in the MemoVar is wrong, because that will turn it into
- -- a Haxl exception (see rethrowAsyncExceptions).
-  run memovar cont env ref = do
-    e <- unHaxl cont env ref
-    case e of
-      Done a -> complete memovar (Right a)
-      Throw e -> complete memovar (Left e)
-      Blocked cont -> do
-        writeIORef memovar (MemoInProgress ref (toHaxl cont))
-        return (Blocked (Cont (retryMemo req)))
-
-  -- We're finished: store the final result
-  complete memovar r = do
-    writeIORef memovar (MemoDone r)
-    done r
+  memoVar <- case DataCache.lookup req cache of
+               Nothing -> do
+                 memoVar <- newMemoWith haxl
+                 unsafeLiftIO $ writeIORef (memoRef env) $!
+                   DataCache.insertNotShowable req memoVar cache
+                 return memoVar
+               Just memoVar -> return memoVar
+  runMemo memoVar
 
 -- | Lifts an 'Either' into either 'Throw' or 'Done'.
 done :: Either SomeException a -> IO (Result u a)
@@ -1144,10 +1103,13 @@ runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID -> do
   -- empty memo; that will throw an exception during the next round.
   retryMemo = runMemo memoVar
 
-  -- Run a continuation and store the result in the memo reference. This
-  -- includes any exceptions that might have been thrown, so that they may be
-  -- rethrown when the memo is accessed. If the memo is incomplete by the end of
-  -- this round, update its progress indicator to the current round and block.
+  -- Run a continuation, and store the result in the memo reference. Any
+  -- exceptions thrown during the running of the memo are thrown directly; they
+  -- are also stored in the memoVar just in case, but we shouldn't be looking at
+  -- the memoVar again anyway.
+  --
+  -- If the memo is incomplete by the end of this round, update its progress
+  -- indicator and block.
   runContToMemo cont env rID = do
     result <- unHaxl cont env rID
     case result of

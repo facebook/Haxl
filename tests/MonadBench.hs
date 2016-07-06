@@ -64,6 +64,8 @@ main = do
         ref <- newMemoWith unionWombats
         let c = runMemo ref
         Haxl.sequence_ [c | _ <- [1..n]]
+    "cc1" -> runHaxl env $
+      Haxl.sequence_ [cachedComputation (ListWombats 1000) unionWombats | _ <- [1..n]]
 
     _ -> do
       hPutStrLn stderr "syntax: monadbench par1|par2|seqr|seql|memo0|memo1|memo2 NUM"
