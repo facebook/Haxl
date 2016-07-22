@@ -1036,6 +1036,7 @@ newMemoWith memoCmp = do
 
 -- | Continue the memoized computation within a given @MemoVar@.
 -- Notes:
+--
 --   1. If the memo contains a complete result, return that result.
 --   2. If the memo contains an in-progress computation, continue it as far as
 --      possible for this round.
@@ -1043,43 +1044,44 @@ newMemoWith memoCmp = do
 --
 -- For example, to memoize the computation @one@ given by:
 --
--- one :: Haxl Int
--- one = return 1
+-- > one :: Haxl Int
+-- > one = return 1
 --
 -- use:
 --
--- do
---   oneMemo <- newMemoWith one
---   let memoizedOne = runMemo aMemo one
---   oneResult <- memoizedOne
+-- > do
+-- >   oneMemo <- newMemoWith one
+-- >   let memoizedOne = runMemo aMemo one
+-- >   oneResult <- memoizedOne
 --
 -- To memoize mutually dependent computations such as in:
 --
--- h :: Haxl Int
--- h = do
---   a <- f
---   b <- g
---   return (a + b)
---  where
---   f = return 42
---   g = succ <$> f
+-- > h :: Haxl Int
+-- > h = do
+-- >   a <- f
+-- >   b <- g
+-- >   return (a + b)
+-- >  where
+-- >   f = return 42
+-- >   g = succ <$> f
 --
 -- without needing to reorder them, use:
 --
--- h :: Haxl Int
--- h = do
---   fMemoRef <- newMemo
---   gMemoRef <- newMemo
+-- > h :: Haxl Int
+-- > h = do
+-- >   fMemoRef <- newMemo
+-- >   gMemoRef <- newMemo
+-- >
+-- >   let f = runMemo fMemoRef
+-- >       g = runMemo gMemoRef
+-- >
+-- >   prepareMemo fMemoRef $ return 42
+-- >   prepareMemo gMemoRef $ succ <$> f
+-- >
+-- >   a <- f
+-- >   b <- g
+-- >   return (a + b)
 --
---   let f = runMemo fMemoRef
---       g = runMemo gMemoRef
---
---   prepareMemo fMemoRef $ return 42
---   prepareMemo gMemoRef $ succ <$> f
---
---   a <- f
---   b <- g
---   return (a + b)
 runMemo :: MemoVar u a -> GenHaxl u a
 runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID -> do
   stored <- readIORef memoRef
