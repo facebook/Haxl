@@ -155,7 +155,7 @@ type Round = Int
 
 -- | Stats that we collect along the way.
 newtype Stats = Stats [RoundStats]
-  deriving ToJSON
+  deriving (Show, ToJSON)
 
 -- | Pretty-print Stats.
 ppStats :: Stats -> String
@@ -183,6 +183,7 @@ data RoundStats
     { fetchReq :: String
     , fetchStack :: [String]
     }
+  deriving (Show)
 
 -- | Pretty-print RoundStats.
 ppRoundStats :: RoundStats -> String
@@ -209,7 +210,7 @@ data DataSourceRoundStats = DataSourceRoundStats
   , dataSourceTime :: Maybe Microseconds
   , dataSourceFailures :: Maybe Int
   , dataSourceAllocation :: Maybe Int
-  }
+  } deriving (Show)
 
 -- | Pretty-print DataSourceRoundStats
 ppDataSourceRoundStats :: DataSourceRoundStats -> String
