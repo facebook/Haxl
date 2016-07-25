@@ -5,18 +5,20 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | The implementation of the 'Haxl' monad.  Most users should
 -- import "Haxl.Core" instead of importing this module directly.
@@ -34,8 +36,13 @@ module Haxl.Core.Monad (
     -- * Data fetching and caching
     ShowReq, dataFetch, dataFetchWithShow, uncachedRequest, cacheRequest,
     cacheResult, cacheResultWithShow, cachedComputation,
-    newMemo, newMemoWith, prepareMemo, runMemo,
     dumpCacheAsHaskell, dumpCacheAsHaskellFn,
+
+    -- * Memoization Machinery
+    newMemo, newMemoWith, prepareMemo, runMemo,
+
+    newMemo1, newMemoWith1, prepareMemo1, runMemo1,
+    newMemo2, newMemoWith2, prepareMemo2, runMemo2,
 
     -- * Unsafe operations
     unsafeLiftIO, unsafeToHaxlException,
@@ -540,14 +547,17 @@ dataFetch = dataFetchWithInsert show DataCache.insert
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
 -- the given show functions for requests and their results.
-dataFetchWithShow :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a)) => ShowReq r a
+dataFetchWithShow
+  :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
+  => ShowReq r a
   -> r a -> GenHaxl u a
 dataFetchWithShow (showReq, showRes) = dataFetchWithInsert showReq
   (DataCache.insertWithShow showReq showRes)
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
 -- the given function to insert requests in the cache.
-dataFetchWithInsert :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
+dataFetchWithInsert
+  :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
   -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar)
   -> r a
@@ -639,8 +649,9 @@ cacheResult = cacheResultWithInsert show DataCache.insert
 
 -- | Transparently provides caching in the same way as 'cacheResult', but uses
 -- the given functions to show requests and their results.
-cacheResultWithShow :: (Eq (r a), Hashable (r a), Typeable (r a)) => ShowReq r a -> r a -> IO a
-  -> GenHaxl u a
+cacheResultWithShow
+  :: (Eq (r a), Hashable (r a), Typeable (r a))
+  => ShowReq r a -> r a -> IO a -> GenHaxl u a
 cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
   (DataCache.insertWithShow showReq showRes)
 
@@ -916,8 +927,10 @@ scheduleFetches fetches = async_fetches sync_fetches
 -- -----------------------------------------------------------------------------
 -- Memoization
 
--- | A variable in the cache representing the state of a memoized computation
+-- | Variables representing memoized computations.
 newtype MemoVar u a = MemoVar (IORef (MemoStatus u a))
+newtype MemoVar1 u a b = MemoVar1 (IORef (MemoStatus1 u a b))
+newtype MemoVar2 u a b c = MemoVar2 (IORef (MemoStatus2 u a b c))
 
 -- | The state of a memoized computation
 data MemoStatus u a
@@ -930,11 +943,30 @@ data MemoStatus u a
   -- | A fully evaluated memo; here is the result.
   | MemoDone (Either SomeException a)
 
-  -- | A new memo, with a stored computation. Not empty, but has not been run yet.
+  -- | A new memo, with a stored computation. Not empty, but has not been run
+  -- yet.
   | MemoNew (GenHaxl u a)
 
-  -- | An empty memo; must be prepared before being run.
+  -- | An empty memo, should not be run before preparation.
   | MemoEmpty
+
+-- | The state of a memoized 1-argument function.
+data MemoStatus1 u a b
+  -- | An unprepared memo.
+  = MemoEmpty1
+  -- | A memo-table containing @MemoStatus@es for at least one in-progress memo.
+  | MemoTbl1 ( a -> GenHaxl u b
+             , HashMap.HashMap a
+               (MemoVar u b))
+
+data MemoStatus2 u a b c
+  -- | An unprepared memo.
+  = MemoEmpty2
+  -- | A memo-table containing @MemoStatus@es for at least one in-progress memo.
+  | MemoTbl2 ( a -> b -> GenHaxl u c
+             , HashMap.HashMap a
+               (HashMap.HashMap b
+                 (MemoVar u c)))
 
 type RoundId u = IORef (RequestStore u)
 {-
@@ -1083,13 +1115,12 @@ newMemoWith memoCmp = do
 -- >   return (a + b)
 --
 runMemo :: MemoVar u a -> GenHaxl u a
-runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID -> do
-  stored <- readIORef memoRef
-  case stored of
-    -- The memo is complete.
-    MemoDone result -> done result
+runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID ->
+  readIORef memoRef >>= \case
     -- Memo was not prepared first; throw an exception.
     MemoEmpty -> raise $ CriticalError "Attempting to run empty memo."
+    -- The memo is complete.
+    MemoDone result -> done result
     -- Memo has just been prepared, run it.
     MemoNew cont -> runContToMemo cont env rID
     -- The memo is in progress, there *may* be progress to be made.
@@ -1097,8 +1128,9 @@ runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID -> do
       -- The last update was performed *this* round and is still in progress;
       -- nothing further can be done this round. Wait until the next round.
       | rID' == rID -> return (Blocked $ Cont retryMemo)
-      -- This is the first time this memo is being run during this round, or at
-      -- all. Enough progress may have been made to continue running the memo.
+      -- This is the first time this memo is being run during this round, or
+      -- at all. Enough progress may have been made to continue running the
+      -- memo.
       | otherwise -> runContToMemo cont env rID
  where
   -- Continuation to retry an existing memo. It is not possible to *retry* an
@@ -1122,3 +1154,52 @@ runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID -> do
         return (Blocked $ Cont retryMemo)
 
   finalize r = writeIORef memoRef (MemoDone r) >> done r
+
+newMemo1 :: GenHaxl u (MemoVar1 u a b)
+newMemo1 = unsafeLiftIO $ MemoVar1 <$> newIORef MemoEmpty1
+
+newMemoWith1 :: (a -> GenHaxl u b) -> GenHaxl u (MemoVar1 u a b)
+newMemoWith1 f = newMemo1 >>= \r -> prepareMemo1 r f >> return r
+
+prepareMemo1 :: MemoVar1 u a b -> (a -> GenHaxl u b) -> GenHaxl u ()
+prepareMemo1 (MemoVar1 r) f
+  = unsafeLiftIO $ writeIORef r (MemoTbl1 (f, HashMap.empty))
+
+runMemo1 :: (Eq a, Hashable a) => MemoVar1 u a b -> a -> GenHaxl u b
+runMemo1 (MemoVar1 r) k = unsafeLiftIO (readIORef r) >>= \case
+  MemoEmpty1 -> throw $ CriticalError "Attempting to run empty memo."
+  MemoTbl1 (f, h) -> case HashMap.lookup k h of
+    Nothing -> do
+      x <- newMemoWith (f k)
+      unsafeLiftIO $ writeIORef r (MemoTbl1 (f, HashMap.insert k x h))
+      runMemo x
+    Just v -> runMemo v
+
+newMemo2 :: GenHaxl u (MemoVar2 u a b c)
+newMemo2 = unsafeLiftIO $ MemoVar2 <$> newIORef MemoEmpty2
+
+newMemoWith2 :: (a -> b -> GenHaxl u c) -> GenHaxl u (MemoVar2 u a b c)
+newMemoWith2 f = newMemo2 >>= \r -> prepareMemo2 r f >> return r
+
+prepareMemo2 :: MemoVar2 u a b c -> (a -> b -> GenHaxl u c) -> GenHaxl u ()
+prepareMemo2 (MemoVar2 r) f
+  = unsafeLiftIO $ writeIORef r (MemoTbl2 (f, HashMap.empty))
+
+runMemo2 :: (Eq a, Hashable a, Eq b, Hashable b)
+         => MemoVar2 u a b c
+         -> a -> b -> GenHaxl u c
+runMemo2 (MemoVar2 r) k1 k2 = unsafeLiftIO (readIORef r) >>= \case
+  MemoEmpty2 -> throw $ CriticalError "Attempting to run empty memo."
+  MemoTbl2 (f, h1) -> case HashMap.lookup k1 h1 of
+    Nothing -> do
+      v <- newMemoWith (f k1 k2)
+      unsafeLiftIO $ writeIORef r
+        (MemoTbl2 (f, HashMap.insert k1 (HashMap.singleton k2 v) h1))
+      runMemo v
+    Just h2 -> case HashMap.lookup k2 h2 of
+      Nothing -> do
+        v <- newMemoWith (f k1 k2)
+        unsafeLiftIO $ writeIORef r
+          (MemoTbl2 (f, HashMap.insert k1 (HashMap.insert k2 v h2) h1))
+        runMemo v
+      Just v -> runMemo v

@@ -20,6 +20,8 @@ import Text.Printf
 import Haxl.Prelude as Haxl
 import Prelude()
 
+import Haxl.Core.Monad (newMemoWith, runMemo)
+
 import Haxl.Core
 
 import ExampleDataSource
@@ -64,11 +66,50 @@ main = do
         ref <- newMemoWith unionWombats
         let c = runMemo ref
         Haxl.sequence_ [c | _ <- [1..n]]
+    "memo4" ->
+      runHaxl env $ do
+        let f = unionWombatsTo
+        Haxl.sequence_ [f x | x <- take n $ cycle [100, 200 .. 1000]]
+    "memo5" ->
+      runHaxl env $ do
+        f <- memoize1 unionWombatsTo
+        Haxl.sequence_ [f x | x <- take n $ cycle [100, 200 .. 1000]]
+    "memo6" ->
+      runHaxl env $ do
+        let f = unionWombatsFromTo
+        Haxl.sequence_ [ f x y
+                       | x <- take n $ cycle [100, 200 .. 1000]
+                       , let y = x + 1000
+                       ]
+    "memo7" ->
+      runHaxl env $ do
+        f <- memoize2 unionWombatsFromTo
+        Haxl.sequence_ [ f x y
+                       | x <- take n $ cycle [100, 200 .. 1000]
+                       , let y = x + 1000
+                       ]
+
     "cc1" -> runHaxl env $
-      Haxl.sequence_ [cachedComputation (ListWombats 1000) unionWombats | _ <- [1..n]]
+      Haxl.sequence_ [ cachedComputation (ListWombats 1000) unionWombats
+                     | _ <- [1..n]
+                     ]
 
     _ -> do
-      hPutStrLn stderr "syntax: monadbench par1|par2|seqr|seql|memo0|memo1|memo2 NUM"
+      hPutStrLn stderr $ "syntax: monadbench " ++ concat
+        [ "par1"
+        , "par2"
+        , "seqr"
+        , "seql"
+        , "memo0"
+        , "memo1"
+        , "memo2"
+        , "memo3"
+        , "memo4"
+        , "memo5"
+        , "memo6"
+        , "memo7"
+        , "cc1"
+        ]
       exitWith (ExitFailure 1)
   t1 <- getCurrentTime
   printf "%d reqs: %.2fs\n" n (realToFrac (t1 `diffUTCTime` t0) :: Double)
@@ -85,3 +126,9 @@ tree n = concat <$> Haxl.sequence
 
 unionWombats :: GenHaxl () [Id]
 unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..1000]
+
+unionWombatsTo :: Id -> GenHaxl () [Id]
+unionWombatsTo x = foldl List.union [] <$> Haxl.mapM listWombats [1..x]
+
+unionWombatsFromTo :: Id -> Id -> GenHaxl () [Id]
+unionWombatsFromTo x y = foldl List.union [] <$> Haxl.mapM listWombats [x..y]

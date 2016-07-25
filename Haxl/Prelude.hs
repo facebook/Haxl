@@ -32,7 +32,8 @@ module Haxl.Prelude (
     module Prelude,
 
     -- * Haxl and Fetching data
-    GenHaxl, dataFetch, DataSource, memo, newMemo, prepareMemo, newMemoWith, runMemo,
+    GenHaxl, dataFetch, DataSource, memo,
+    memoize, memoize1, memoize2,
 
     -- * Extra Monad and Applicative things
     Applicative(..),

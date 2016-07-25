@@ -13,7 +13,13 @@
 
 -- | Most users should import "Haxl.Core" instead of importing this
 -- module directly.
-module Haxl.Core.Memo (memo, memoFingerprint, MemoFingerprintKey(..)) where
+module Haxl.Core.Memo (
+  memo,
+  memoFingerprint,
+  MemoFingerprintKey(..),
+  memoize, memoize1, memoize2
+) where
+
 
 import Data.Text (Text)
 import Data.Typeable
@@ -22,7 +28,7 @@ import Data.Word
 
 import GHC.Prim (Addr#)
 
-import Haxl.Core.Monad (GenHaxl, cachedComputation, withLabel, withFingerprintLabel)
+import Haxl.Core.Monad
 
 -- -----------------------------------------------------------------------------
 -- A key type that can be used for memoizing computations by a Text key
@@ -97,3 +103,44 @@ memoFingerprint
   :: Typeable a => MemoFingerprintKey a -> GenHaxl u a -> GenHaxl u a
 memoFingerprint key@(MemoFingerprintKey _ _ mnPtr nPtr) =
   withFingerprintLabel mnPtr nPtr . cachedComputation key
+
+-- * Generic memoization machinery.
+
+-- | Transform a Haxl computation into a memoized version of itself.
+--
+-- Given a Haxl computation, @memoize@ creates a version which stores its result
+-- in a @MemoVar@ (which @memoize@ creates), and returns the stored result on
+-- subsequent invocations. This permits the creation of local memos, whose
+-- lifetimes are scoped to the current function, rather than the entire request.
+memoize :: GenHaxl u a -> GenHaxl u a
+memoize a = newMemoWith a >>= runMemo
+
+-- | Transform a 1-argument function returning a Haxl computation into a
+-- memoized version of itself.
+--
+-- Given a function @f@ of type @a -> GenHaxl u b@, @memoize1@ creates a version
+-- which memoizes the results of @f@ in a table keyed by its argument, and
+-- returns stored results on subsequent invocations with the same argument.
+--
+-- e.g.:
+--
+-- allFriends :: [Int] -> GenHaxl u [Int]
+-- allFriends ids = do
+--   memoizedFriendsOf <- memoize1 friendsOf
+--   concat <$> mapM memoizeFriendsOf ids
+--
+-- The above implementation will not invoke the underlying @friendsOf@
+-- repeatedly for duplicate values in @ids@.
+memoize1 :: (Eq a, Hashable a)
+         => (a -> GenHaxl u b)
+         -> GenHaxl u (a -> GenHaxl u b)
+memoize1 f = runMemo1 <$> newMemoWith1 f
+
+-- | Transform a 2-argument function returning a Haxl computation, into a
+-- memoized version of itself.
+--
+-- The 2-ary version of @memoize1@, see its documentation for details.
+memoize2 :: (Eq a, Hashable a, Eq b, Hashable b)
+         => (a -> b -> GenHaxl u c)
+         -> GenHaxl u (a -> b -> GenHaxl u c)
+memoize2 f = runMemo2 <$> newMemoWith2 f
