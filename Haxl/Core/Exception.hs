@@ -66,6 +66,7 @@ module Haxl.Core.Exception (
 
   -- * Exception utilities
   asHaxlException,
+  MiddleException(..),
 
   ) where
 
