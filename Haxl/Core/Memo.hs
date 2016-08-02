@@ -5,6 +5,7 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
@@ -20,7 +21,9 @@ module Haxl.Core.Memo (
   memoize, memoize1, memoize2
 ) where
 
-
+#if __GLASGOW_HASKELL__ < 710
+import Control.Applicative
+#endif
 import Data.Text (Text)
 import Data.Typeable
 import Data.Hashable
