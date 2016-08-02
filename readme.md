@@ -45,3 +45,5 @@ Graph API.
    Hackage.
 
  * [There is no Fork: An Abstraction for Efficient, Concurrent, and Concise Data Access](http://community.haskell.org/~simonmar/papers/haxl-icfp14.pdf), our paper on Haxl, accepted for publication at ICFP'14.
+
+[![Build Status](https://travis-ci.org/facebook/Haxl.svg?branch=master)](https://travis-ci.org/facebook/Haxl)
