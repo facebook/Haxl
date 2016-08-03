@@ -1,5 +1,9 @@
+{-# LANGUAGE CPP #-}
 module MemoizationTests (tests) where
 
+#if __GLASGOW_HASKELL__ < 710
+import Control.Applicative
+#endif
 import Data.IORef
 
 import Test.HUnit
