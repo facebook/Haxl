@@ -43,7 +43,7 @@ library
 
   build-depends:
     HUnit >= 1.2 && < 1.4,
-    aeson >= 0.6 && < 0.12,
+    aeson >= 0.6 && < 1.1,
     base == 4.*,
     binary >= 0.7 && < 0.9,
     bytestring >= 0.9 && < 0.11,
