@@ -6,9 +6,12 @@ import Haxl.Prelude
 import Data.List
 
 import Haxl.Core
+import Haxl.Core.Monad
 
 import Test.HUnit
 
+import Control.DeepSeq (force)
+import Control.Exception (evaluate)
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
@@ -39,6 +42,27 @@ collectsdata = do
   assertEqual "foo's parent" (Just ["bar"]) $
     HashSet.toList . profileDeps <$> HashMap.lookup "foo" profData
 
+exceptions :: Assertion
+exceptions = do
+  env <- mkProfilingEnv
+  _x <- runHaxl env $
+          withLabel "outer" $
+            tryToHaxlException $ withLabel "inner" $
+              unsafeLiftIO $ evaluate $ force (error "pure exception" :: Int)
+  profData <- profile <$> readIORef (profRef env)
+  assertBool "inner label not added" $
+    not $ HashMap.member "inner" profData
+
+  env2 <- mkProfilingEnv
+  _x <- runHaxl env2 $
+          withLabel "outer" $
+            tryToHaxlException $ withLabel "inner" $
+              throw $ NotFound "haxl exception"
+  profData <- profile <$> readIORef (profRef env2)
+  assertBool "inner label added" $
+    HashMap.member "inner" profData
+
 tests = TestList
   [ TestLabel "collectsdata" $ TestCase collectsdata
+  , TestLabel "exceptions" $ TestCase exceptions
   ]

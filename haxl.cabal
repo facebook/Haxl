@@ -92,6 +92,7 @@ test-suite test
     binary,
     bytestring,
     containers,
+    deepseq,
     filepath,
     hashable,
     haxl,
