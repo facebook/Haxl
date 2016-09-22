@@ -11,6 +11,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -182,6 +183,7 @@ emptyEnv = initEnv stateEmpty
 --
 newtype GenHaxl u a = GenHaxl
   { unHaxl :: Env u -> IORef (RequestStore u) -> IO (Result u a) }
+  deriving NFData
 
 -- | The result of a computation is either 'Done' with a value, 'Throw'
 -- with an exception, or 'Blocked' on the result of a data fetch with
