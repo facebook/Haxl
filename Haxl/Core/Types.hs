@@ -16,6 +16,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+#if __GLASGOW_HASKELL >= 800
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+#else
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+#endif
 
 -- | Base types used by all of Haxl. Most users should import
 -- "Haxl.Core" instead of importing this module directly.
@@ -135,16 +140,24 @@ defaultFlags = Flags
   , caching = 1
   }
 
+#if MIN_VERSION_base(4,8,0)
+#define FUNMONAD Monad m
+#else
+#define FUNMONAD (Functor m, Monad m)
+#endif
+
 -- | Runs an action if the tracing level is above the given threshold.
-ifTrace :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
+ifTrace :: FUNMONAD => Flags -> Int -> m a -> m ()
 ifTrace flags i = when (trace flags >= i) . void
 
 -- | Runs an action if the report level is above the given threshold.
-ifReport :: (Functor m, Monad m) => Flags -> Int -> m a -> m ()
+ifReport :: FUNMONAD => Flags -> Int -> m a -> m ()
 ifReport flags i = when (report flags >= i) . void
 
-ifProfiling :: (Functor m, Monad m) => Flags -> m a -> m ()
+ifProfiling :: FUNMONAD => Flags -> m a -> m ()
 ifProfiling flags = when (report flags >= 4) . void
+
+#undef FUNMONAD
 
 -- ---------------------------------------------------------------------------
 -- Stats

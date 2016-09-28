@@ -154,4 +154,4 @@ countAardvarks :: String -> GenHaxl () Int
 countAardvarks str = dataFetch (CountAardvarks str)
 
 listWombats :: Id -> GenHaxl () [Id]
-listWombats id = dataFetch (ListWombats id)
+listWombats i = dataFetch (ListWombats i)
