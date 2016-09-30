@@ -1,5 +1,5 @@
 name:                haxl
-version:             0.4.0.0
+version:             0.4.0.1
 synopsis:            A Haskell library for efficient, concurrent,
                      and concise data access.
 homepage:            https://github.com/facebook/Haxl
@@ -113,12 +113,17 @@ test-suite test
     TestMain.hs
 
   other-modules:
+    AdoTests
+    AllTests
     BatchTests
+    Bench
     CoreTests
     DataCacheTest
     ExampleDataSource
     LoadCache
+    MemoizationTests
     MockTAO
+    ProfileTests
     TestExampleDataSource
     TestTypes
     TestUtils
