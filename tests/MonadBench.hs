@@ -6,7 +6,12 @@
 -- be found in the PATENTS file.
 
 -- | Benchmarking tool for core performance characteristics of the Haxl monad.
-
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL >= 800
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+#else
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+#endif
 module MonadBench (main) where
 
 import Control.Monad
@@ -32,6 +37,7 @@ testEnv = do
   let st = stateSet exstate stateEmpty
   initEnv st ()
 
+main :: IO ()
 main = do
   [test,n_] <- getArgs
   let n = read n_
@@ -49,7 +55,7 @@ main = do
        foldr andThen (return ()) (replicate n (listWombats 3))
     -- sequential, left-associated, distinct queries
     "seql" -> runHaxl env $ do
-       foldl andThen (return []) (map listWombats [1.. fromIntegral n])
+       _ <- foldl andThen (return []) (map listWombats [1.. fromIntegral n])
        return ()
     "tree" -> runHaxl env $ void $ tree n
     -- No memoization

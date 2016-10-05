@@ -100,7 +100,7 @@ import GHC.Stack
 -- (generic transient failure) or 'CriticalError' (internal failure).
 --
 data HaxlException
-  = forall e. (Exception e, MiddleException e)
+  = forall e. (MiddleException e)
     => HaxlException
          (Maybe Stack)  -- filled in with the call stack when thrown,
                         -- if PROFILING is on
@@ -129,11 +129,11 @@ instance ToJSON HaxlException where
         ]
 
 haxlExceptionToException
-  :: (Exception e, MiddleException e) => e -> SomeException
+  :: (MiddleException e) => e -> SomeException
 haxlExceptionToException = toException . HaxlException Nothing
 
 haxlExceptionFromException
-  :: (Exception e, MiddleException e) => SomeException -> Maybe e
+  :: (MiddleException e) => SomeException -> Maybe e
 haxlExceptionFromException x = do
   HaxlException _ a <- fromException x
   cast a
