@@ -80,7 +80,6 @@ library
 
   ghc-options:
     -Wall
-    -fno-warn-name-shadowing
 
 
 test-suite test

@@ -19,6 +19,11 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+#if __GLASGOW_HASKELL >= 800
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+#else
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+#endif
 
 -- | The implementation of the 'Haxl' monad.  Most users should
 -- import "Haxl.Core" instead of importing this module directly.
