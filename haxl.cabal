@@ -42,7 +42,7 @@ extra-source-files:
 library
 
   build-depends:
-    HUnit >= 1.2 && < 1.5,
+    HUnit >= 1.2 && < 1.6,
     aeson >= 0.6 && < 1.1,
     base == 4.*,
     binary >= 0.7 && < 0.9,
