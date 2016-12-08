@@ -45,7 +45,7 @@ instance Hashable (UserReq a) where
    hashWithSalt s (GetNameById a) = hashWithSalt s (1::Int, a)
 
 deriving instance Show (UserReq a)
-instance Show1 UserReq where show1 = show
+instance ShowP UserReq where showp = show
 ```
 
 This type is parameterized so that each request can indicate which type of result it returns. It is `Typeable` so that Haxl can safely store requests to multiple data sources at once, as well as `Eq` and `Hashable` for caching and `Show` for debug output.
@@ -70,7 +70,7 @@ instance DataSourceName UserReq where
 Next, `DataSource` lets us specify how a set of blocked requests are to be fetched. It is parameterized by the type of a *user environment* of cross–data source global data, as well as a request type that is an instance of `StateKey`. It is defined as follows:
 
 ```haskell
-class (DataSourceName, StateKey req, Show1 req) => DataSource u req where
+class (DataSourceName, StateKey req, ShowP req) => DataSource u req where
   fetch
     :: State req           -- Data source state.
     -> Flags               -- Flags, containing tracing verbosity level, etc.

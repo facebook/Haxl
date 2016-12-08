@@ -37,7 +37,7 @@ data TAOReq a where
 deriving instance Show (TAOReq a)
 deriving instance Eq (TAOReq a)
 
-instance Show1 TAOReq where show1 = show
+instance ShowP TAOReq where showp = show
 
 instance Hashable (TAOReq a) where
   hashWithSalt s (AssocRangeId2s a b) = hashWithSalt s (a,b)

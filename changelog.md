@@ -1,3 +1,6 @@
+# Changes in version 0.5.0.0
+  * Rename 'Show1' to 'ShowP' ([#62](https://github.com/facebook/Haxl/issues/62))
+
 # Changes in version 0.3.0.0
 
   * Some performance improvements, including avoiding quadratic

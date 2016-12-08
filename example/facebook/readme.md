@@ -54,7 +54,7 @@ There is some necessary boilerplate that goes along with a data source:
 deriving instance Eq (FacebookReq a)
 deriving instance Show (FacebookReq a)
 
-instance Show1 FacebookReq where show1 = show
+instance ShowP FacebookReq where showp = show
 
 instance Hashable (FacebookReq a) where
   hashWithSalt s (GetObject (Id id))      = hashWithSalt s (0::Int,id)

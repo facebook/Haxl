@@ -1,5 +1,5 @@
 name:                haxl
-version:             0.4.0.2
+version:             0.5.0.0
 synopsis:            A Haskell library for efficient, concurrent,
                      and concise data access.
 homepage:            https://github.com/facebook/Haxl
@@ -69,7 +69,7 @@ library
     Haxl.Core.Monad,
     Haxl.Core.RequestStore,
     Haxl.Core.StateStore,
-    Haxl.Core.Show1,
+    Haxl.Core.ShowP,
     Haxl.Core.Types,
     Haxl.Prelude
 

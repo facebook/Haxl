@@ -114,7 +114,7 @@ import Data.Typeable.Internal
 #if __GLASGOW_HASKELL__ < 708
 import Haxl.Core.Util (tryReadMVar)
 #endif
-import Haxl.Core.Show1
+import Haxl.Core.ShowP
 import Haxl.Core.StateStore
 
 -- ---------------------------------------------------------------------------
@@ -330,7 +330,7 @@ emptyDataCache = DataCache HashMap.empty
 -- For a complete example data source, see
 -- <https://github.com/facebook/Haxl/tree/master/example Examples>.
 --
-class (DataSourceName req, StateKey req, Show1 req) => DataSource u req where
+class (DataSourceName req, StateKey req, ShowP req) => DataSource u req where
 
   -- | Issues a list of fetches to this 'DataSource'. The 'BlockedFetch'
   -- objects contain both the request and the 'ResultVar's into which to put
@@ -352,10 +352,10 @@ class DataSourceName req where
   -- take a dummy request.
   dataSourceName :: req a -> Text
 
--- The 'Show1' class is a workaround for the fact that we can't write
+-- The 'ShowP' class is a workaround for the fact that we can't write
 -- @'Show' (req a)@ as a superclass of 'DataSource', without also
 -- parameterizing 'DataSource' over @a@, which is a pain (I tried
--- it). 'Show1' seems fairly benign, though.
+-- it). 'ShowP' seems fairly benign, though.
 
 -- | A convenience only: package up 'Eq', 'Hashable', 'Typeable', and 'Show'
 -- for requests into a single constraint.
