@@ -67,7 +67,7 @@ instance Hashable (UserReq a) where
    hashWithSalt s (GetNameById a) = hashWithSalt s (1::Int, a)
 
 deriving instance Show (UserReq a)
-instance Show1 UserReq where show1 = show
+instance ShowP UserReq where showP = show
 
 instance StateKey UserReq where
   data State UserReq = UserState {}

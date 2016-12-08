@@ -36,7 +36,7 @@ data FacebookReq a where
 deriving instance Eq (FacebookReq a)
 deriving instance Show (FacebookReq a)
 
-instance Show1 FacebookReq where show1 = show
+instance ShowP FacebookReq where showP = show
 
 instance Hashable (FacebookReq a) where
   hashWithSalt s (GetObject (Id id))      = hashWithSalt s (0::Int,id)

@@ -54,7 +54,7 @@ module Haxl.Core.Monad (
   ) where
 
 import Haxl.Core.Types
-import Haxl.Core.Show1
+import Haxl.Core.ShowP
 import Haxl.Core.StateStore
 import Haxl.Core.Exception
 import Haxl.Core.RequestStore
@@ -780,7 +780,7 @@ performFetches n env reqs = do
 
   ifTrace f 3 $
     forM_ jobs $ \(BlockedFetches reqs) ->
-      forM_ reqs $ \(BlockedFetch r _) -> putStrLn (show1 r)
+      forM_ reqs $ \(BlockedFetch r _) -> putStrLn (showp r)
 
   let
     applyFetch (i, BlockedFetches (reqs :: [BlockedFetch r])) =

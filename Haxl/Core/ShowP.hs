@@ -7,11 +7,11 @@
 
 -- Most users should import "Haxl.Core" instead of importing this
 -- module directly.
-module Haxl.Core.Show1
-  ( Show1(..)
+module Haxl.Core.ShowP
+  ( ShowP(..)
   ) where
 
 -- | A class of type constructors for which we can show all
 -- parameterizations.
-class Show1 f where
-  show1 :: f a -> String
+class ShowP f where
+  showp :: f a -> String

@@ -62,7 +62,7 @@ module Haxl.Core (
 
   -- * Building data sources
   DataSource(..),
-  Show1(..),
+  ShowP(..),
   DataSourceName(..),
   Request,
   BlockedFetch(..),
@@ -97,5 +97,5 @@ import Haxl.Core.Memo
 import Haxl.Core.Monad hiding (unsafeLiftIO {- Ask nicely to get this! -})
 import Haxl.Core.Types
 import Haxl.Core.Exception
-import Haxl.Core.Show1 (Show1(..))
+import Haxl.Core.ShowP (ShowP(..))
 import Haxl.Core.StateStore
