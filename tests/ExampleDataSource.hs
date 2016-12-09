@@ -65,7 +65,7 @@ deriving instance Eq (ExampleReq a)
 
 deriving instance Show (ExampleReq a)
 
-instance Show1 ExampleReq where show1 = show
+instance ShowP ExampleReq where showp = show
 
 instance Hashable (ExampleReq a) where
    hashWithSalt s (CountAardvarks a) = hashWithSalt s (0::Int,a)
