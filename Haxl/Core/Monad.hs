@@ -786,10 +786,12 @@ performFetches n env reqs = do
     applyFetch (i, BlockedFetches (reqs :: [BlockedFetch r])) =
       case stateGet (states env) of
         Nothing ->
-          return (SyncFetch (mapM_ (setError (const e)) reqs))
-          where req :: r a; req = undefined
-                e = DataSourceError $
-                      "data source not initialized: " <> dataSourceName req
+          return (SyncFetch (mapM_ (setError e) reqs))
+          where e req = DataSourceError $
+                  "data source not initialized: " <>
+                  dataSourceName req <>
+                  ": " <>
+                  Text.pack (showp req)
         Just state ->
           return $ wrapFetchInTrace i (length reqs)
                     (dataSourceName (undefined :: r a))
