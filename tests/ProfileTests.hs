@@ -24,14 +24,15 @@ mkProfilingEnv = do
 
 collectsdata :: Assertion
 collectsdata = do
-  env <- mkProfilingEnv
-  _x <- runHaxl env $
+  e <- mkProfilingEnv
+  _x <- runHaxl e $
           withLabel "bar" $
-            withLabel "foo" $
-              if length (intersect ["a"::Text, "b"] ["c"]) > 1
+            withLabel "foo" $ do
+              u <- env userEnv
+              if length (intersect (HashMap.keys u) ["c"]) > 1
               then return 5
               else return (4::Int)
-  profData <- profile <$> readIORef (profRef env)
+  profData <- profile <$> readIORef (profRef e)
   assertEqual "has data" 3 $ HashMap.size profData
   assertBool "foo allocates" $
     case profileAllocs <$> HashMap.lookup "foo" profData of
