@@ -51,6 +51,9 @@ module Haxl.Core.Monad (
 
     -- * Unsafe operations
     unsafeLiftIO, unsafeToHaxlException,
+
+    -- * Parallel operaitons
+    pAnd, pOr
   ) where
 
 import Haxl.Core.Types
@@ -1210,3 +1213,81 @@ runMemo2 (MemoVar2 r) k1 k2 = unsafeLiftIO (readIORef r) >>= \case
           (MemoTbl2 (f, HashMap.insert k1 (HashMap.insert k2 v h2) h1))
         runMemo v
       Just v -> runMemo v
+
+
+-- -----------------------------------------------------------------------------
+-- Parallel operations
+
+-- Bind more tightly than .&&, .||
+infixr 5 `pAnd`
+infixr 4 `pOr`
+
+-- | Parallel version of '(.||)'.  Both arguments are evaluated in
+-- parallel, and if either returns 'True' then the other is
+-- not evaluated any further.
+--
+-- WARNING: exceptions may be unpredictable when using 'pOr'.  If one
+-- argument returns 'True' before the other completes, then 'pOr'
+-- returns 'True' immediately, ignoring a possible exception that
+-- the other argument may have produced if it had been allowed to
+-- complete.
+pOr :: GenHaxl u Bool -> GenHaxl u Bool -> GenHaxl u Bool
+GenHaxl a `pOr` GenHaxl b = GenHaxl $ \env ref -> do
+  ra <- a env ref
+  case ra of
+    Done True -> return (Done True)
+    Done False -> b env ref
+    Throw _ -> return ra
+    Blocked a' -> do
+      rb <- b env ref
+      case rb of
+        Done True -> return (Blocked (Cont (return True)))
+          -- Note [tricky pOr/pAnd]
+        Done False -> return ra
+        Throw e -> return (Blocked (Cont (throw e)))
+        Blocked b' -> return (Blocked (Cont (toHaxl a' `pOr` toHaxl b')))
+
+-- | Parallel version of '(.&&)'.  Both arguments are evaluated in
+-- parallel, and if either returns 'False' then the other is
+-- not evaluated any further.
+--
+-- WARNING: exceptions may be unpredictable when using 'pAnd'.  If one
+-- argument returns 'False' before the other completes, then 'pAnd'
+-- returns 'False' immediately, ignoring a possible exception that
+-- the other argument may have produced if it had been allowed to
+-- complete.
+pAnd :: GenHaxl u Bool -> GenHaxl u Bool -> GenHaxl u Bool
+GenHaxl a `pAnd` GenHaxl b = GenHaxl $ \env ref -> do
+  ra <- a env ref
+  case ra of
+    Done False -> return (Done False)
+    Done True -> b env ref
+    Throw _ -> return ra
+    Blocked a' -> do
+      rb <- b env ref
+      case rb of
+        Done False -> return (Blocked (Cont (return False)))
+          -- Note [tricky pOr/pAnd]
+        Done True -> return ra
+        Throw _ -> return rb
+        Blocked b' -> return (Blocked (Cont (toHaxl a' `pAnd` toHaxl b')))
+
+{-
+Note [tricky pOr/pAnd]
+
+If one branch returns (Done True) and the other returns (Blocked _),
+even though we know the result will be True (in the case of pOr), we
+must return Blocked.  This is because there are data fetches to
+perform, and if we don't do this, the cache is left with an empty
+ResultVar, and the next fetch for the same request will fail.
+
+Alternatives:
+
+ * Test for a non-empty RequestStore in runHaxl when we get Done, but
+   that would penalise every runHaxl.
+
+ * Try to abandon the fetches. This is hard: we've already stored the
+   requests and a ResultVars in the cache, and we don't know how to
+   find the right fetches to remove from the cache.  Furthermore, we
+   might have partially computed some memoized computations.
+-}

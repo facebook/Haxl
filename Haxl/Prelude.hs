@@ -52,6 +52,7 @@ module Haxl.Prelude (
     (.==), (./=), (.&&), (.||),
     (.++),
     pair,
+    pAnd, pOr,
 
     -- * Text things
     Text,

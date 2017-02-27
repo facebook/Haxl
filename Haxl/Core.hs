@@ -33,6 +33,9 @@ module Haxl.Core (
   memo, memoize, memoize1, memoize2,
   memoFingerprint, MemoFingerprintKey(..),
 
+  -- ** Conditionals
+  pAnd, pOr,
+
   -- ** Statistics
   Stats(..),
   RoundStats(..),

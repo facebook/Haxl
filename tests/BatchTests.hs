@@ -176,6 +176,103 @@ deterministicExceptions = do
      Left (NotFound "xxx") -> True
      _ -> False
 
+pOrTests = do
+  env <- makeTestEnv
+
+  -- Test semantics
+  r <- runHaxl env $ do
+        a <- return False `pOr` return False
+        b <- return False `pOr` return True
+        c <- return True `pOr` return False
+        d <- return True `pOr` return True
+        return (not a && b && c && d)
+  assertBool "pOr0" r
+
+  -- pOr is left-biased with respsect to exceptions:
+  r <- runHaxl env $ try $ return True `pOr` throw (NotFound "foo")
+  assertBool "pOr1" $
+    case (r :: Either NotFound Bool) of
+      Right True -> True
+      _ -> False
+  r <- runHaxl env $ try $ throw (NotFound "foo") `pOr` return True
+  assertBool "pOr2" $
+    case (r :: Either NotFound Bool) of
+      Left (NotFound "foo") -> True
+      _ -> False
+
+  -- pOr is non-deterministic (see also Note [tricky pOr/pAnd])
+  let nondet = (do _ <- friendsOf 1; throw (NotFound "foo")) `pOr` return True
+  r <- runHaxl env $ try nondet
+  assertBool "pOr3" $
+    case (r :: Either NotFound Bool) of
+      Right True -> True
+      _ -> False
+  -- next we populate the cache
+  _ <- runHaxl env $ friendsOf 1
+  -- and now exactly the same pOr again will throw this time:
+  r <- runHaxl env $ try nondet
+  assertBool "pOr4" $
+    case (r :: Either NotFound Bool) of
+      Left (NotFound "foo") -> True
+      _ -> False
+
+  -- One more test: Blocked/False => Blocked
+  r <- runHaxl env $ try $
+    (do _ <- friendsOf 2; throw (NotFound "foo")) `pOr` return False
+  assertBool "pOr5" $
+    case (r :: Either NotFound Bool) of
+      Left (NotFound _) -> True
+      _ -> False
+
+pAndTests = do
+  env <- makeTestEnv
+
+  -- Test semantics
+  r <- runHaxl env $ do
+        a <- return False `pAnd` return False
+        b <- return False `pAnd` return True
+        c <- return True `pAnd` return False
+        d <- return True `pAnd` return True
+        return (not a && not b && not c && d)
+  assertBool "pAnd0" r
+
+  -- pAnd is left-biased with respsect to exceptions:
+  r <- runHaxl env $ try $ return False `pAnd` throw (NotFound "foo")
+  assertBool "pAnd1" $
+    case (r :: Either NotFound Bool) of
+      Right False -> True
+      _ -> False
+  r <- runHaxl env $ try $ throw (NotFound "foo") `pAnd` return False
+  assertBool "pAnd2" $
+    case (r :: Either NotFound Bool) of
+      Left (NotFound "foo") -> True
+      _ -> False
+
+  -- pAnd is non-deterministic (see also Note [tricky pOr/pAnd])
+  let nondet =
+        (do _ <- friendsOf 1; throw (NotFound "foo")) `pAnd` return False
+  r <- runHaxl env $ try nondet
+  assertBool "pAnd3" $
+    case (r :: Either NotFound Bool) of
+      Right False -> True
+      _ -> False
+  -- next we populate the cache
+  _ <- runHaxl env $ friendsOf 1
+  -- and now exactly the same pAnd again will throw this time:
+  r <- runHaxl env $ try nondet
+  assertBool "pAnd4" $
+    case (r :: Either NotFound Bool) of
+      Left (NotFound "foo") -> True
+      _ -> False
+
+  -- One more test: Blocked/True => Blocked
+  r <- runHaxl env $ try $
+    (do _ <- friendsOf 2; throw (NotFound "foo")) `pAnd` return True
+  assertBool "pAnd5" $
+    case (r :: Either NotFound Bool) of
+      Left (NotFound _) -> True
+      _ -> False
+
 tests = TestList
   [ TestLabel "batching1" $ TestCase batching1
   , TestLabel "batching2" $ TestCase batching2
@@ -194,4 +291,6 @@ tests = TestList
   , TestLabel "exceptionTest1" $ TestCase exceptionTest1
   , TestLabel "exceptionTest2" $ TestCase exceptionTest2
   , TestLabel "deterministicExceptions" $ TestCase deterministicExceptions
+  , TestLabel "pOrTest" $ TestCase pOrTests
+  , TestLabel "pAndTest" $ TestCase pAndTests
   ]
