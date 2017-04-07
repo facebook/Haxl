@@ -1,0 +1,10 @@
+resolver: lts-8.8
+
+packages:
+  - '.'
+
+extra-deps: []
+
+flags: {}
+
+extra-package-dbs: []
