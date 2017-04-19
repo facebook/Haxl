@@ -12,6 +12,7 @@ import AdoTests
 import ProfileTests
 #endif
 import MemoizationTests
+import TestBadDataSource
 
 import Test.HUnit
 
@@ -28,4 +29,5 @@ allTests = TestList
   , TestLabel "ProfileTests" ProfileTests.tests
 #endif
   , TestLabel "MemoizationTests" MemoizationTests.tests
+  , TestLabel "BadDataSourceTests" TestBadDataSource.tests
   ]

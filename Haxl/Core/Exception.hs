@@ -5,6 +5,7 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -67,10 +68,11 @@ module Haxl.Core.Exception (
   -- * Exception utilities
   asHaxlException,
   MiddleException(..),
-
+  rethrowAsyncExceptions,
+  tryWithRethrow,
   ) where
 
-import Control.Exception
+import Control.Exception as Exception
 import Data.Aeson
 import Data.Binary (Binary)
 import Data.Typeable
@@ -326,3 +328,45 @@ asHaxlException e
      haxl_exception
   | otherwise =
      HaxlException Nothing (InternalError (NonHaxlException (textShow e)))
+
+-- We must be careful about turning IO monad exceptions into Haxl
+-- exceptions.  An IO monad exception will normally propagate right
+-- out of runHaxl and terminate the whole computation, whereas a Haxl
+-- exception can get dropped on the floor, if it is on the right of
+-- <*> and the left side also throws, for example.  So turning an IO
+-- monad exception into a Haxl exception is a dangerous thing to do.
+-- In particular, we never want to do it for an asynchronous exception
+-- (AllocationLimitExceeded, ThreadKilled, etc.), because these are
+-- supposed to unconditionally terminate the computation.
+--
+-- There are three places where we take an arbitrary IO monad exception and
+-- turn it into a Haxl exception:
+--
+--  * wrapFetchInCatch.  Here we want to propagate a failure of the
+--    data source to the callers of the data source, but if the
+--    failure came from elsewhere (an asynchronous exception), then we
+--    should just propagate it
+--
+--  * cacheResult (cache the results of IO operations): again,
+--    failures of the IO operation should be visible to the caller as
+--    a Haxl exception, but we exclude asynchronous exceptions from
+--    this.
+
+--  * unsafeToHaxlException: assume the caller knows what they're
+--    doing, and just wrap all exceptions.
+--
+rethrowAsyncExceptions :: SomeException -> IO ()
+rethrowAsyncExceptions e
+#if __GLASGOW_HASKELL__ >= 708
+  | Just SomeAsyncException{} <- fromException e = Exception.throw e
+#endif
+#if __GLASGOW_HASKELL__ >= 710
+  | Just AllocationLimitExceeded{} <- fromException e = Exception.throw e
+    -- AllocationLimitExceeded is not a child of SomeAsyncException,
+    -- but it should be.
+#endif
+  | otherwise = return ()
+
+tryWithRethrow :: IO a -> IO (Either SomeException a)
+tryWithRethrow io =
+  (Right <$> io) `catch` \e -> do rethrowAsyncExceptions e ; return (Left e)

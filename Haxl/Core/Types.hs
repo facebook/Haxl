@@ -81,6 +81,7 @@ module Haxl.Core.Types (
 
   -- * Default fetch implementations
   asyncFetch, asyncFetchWithDispatch,
+  asyncFetchAcquireRelease,
   stubFetch,
   syncFetch,
 
@@ -111,6 +112,7 @@ import qualified Data.Map as Map
 import Data.Text (Text, unpack)
 import Data.Typeable.Internal
 
+import Haxl.Core.Exception
 #if __GLASGOW_HASKELL__ < 708
 import Haxl.Core.Util (tryReadMVar)
 #endif
@@ -551,6 +553,77 @@ syncFetch withService dispatch enqueue _state _flags _si requests =
   getResults <- mapM (submitFetch service enqueue) requests
   dispatch service
   sequence_ getResults
+
+
+{- |
+A version of 'asyncFetch' (actually 'asyncFetchWithDispatch') that
+handles exceptions correctly.  You should use this instead of
+'asyncFetch' or 'asyncFetchWithDispatch'.  The danger with
+'asyncFetch' is that if an exception is thrown by @withService@, the
+@inner@ action won't be executed, and we'll drop some data-fetches in
+the same round.
+
+'asyncFetchAcquireRelease' behaves like the following:
+
+> asyncFetchAcquireRelease acquire release dispatch wait enqueue =
+>   AsyncFetch $ \inner ->
+>     bracket acquire release $ \service -> do
+>       getResults <- mapM (submitFetch service enqueue) requests
+>       dispatch service
+>       inner
+>       wait service
+>       sequence_ getResults
+
+except that @inner@ is run even if @acquire@, @enqueue@, or @dispatch@ throws,
+/unless/ an async exception is received.
+-}
+
+asyncFetchAcquireRelease
+  :: IO service
+  -- ^ Resource acquisition for this datasource
+
+  -> (service -> IO ())
+  -- ^ Resource release
+
+  -> (service -> IO ())
+  -- ^ Dispatch all the pending requests and wait for the results
+
+  -> (service -> IO ())
+  -- ^ Wait for the results
+
+  -> (forall a. service -> request a -> IO (IO (Either SomeException a)))
+  -- ^ Submits an individual request to the service.
+
+  -> State request
+  -- ^ Currently unused.
+
+  -> Flags
+  -- ^ Currently unused.
+
+  -> u
+  -- ^ Currently unused.
+
+  -> [BlockedFetch request]
+  -- ^ Requests to submit.
+
+  -> PerformFetch
+
+asyncFetchAcquireRelease
+  acquire release dispatch wait enqueue _state _flags _si requests =
+  AsyncFetch $ \inner -> mask $ \restore -> do
+    r1 <- tryWithRethrow acquire
+    case r1 of
+      Left err -> do restore inner; throwIO (err :: SomeException)
+      Right service -> do
+        flip finally (release service) $ restore $ do
+          r2 <- tryWithRethrow $ do
+            getResults <- mapM (submitFetch service enqueue) requests
+            dispatch service
+            return getResults
+          inner  --  we assume this cannot throw, ensured by performFetches
+          case r2 of
+            Left err -> throwIO (err :: SomeException)
+            Right getResults -> do wait service; sequence_ getResults
 
 -- | Used by 'asyncFetch' and 'syncFetch' to retrieve the results of
 -- requests to a service.

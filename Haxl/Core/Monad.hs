@@ -67,11 +67,7 @@ import Haxl.Core.DataCache as DataCache
 import qualified Data.Text as Text
 import qualified Control.Monad.Catch as Catch
 import Control.Exception (Exception(..), SomeException)
-#if __GLASGOW_HASKELL__ >= 708
-import Control.Exception (SomeAsyncException(..))
-#endif
 #if __GLASGOW_HASKELL__ >= 710
-import Control.Exception (AllocationLimitExceeded(..))
 import GHC.Conc (getAllocationCounter, setAllocationCounter)
 #endif
 import Control.Monad
@@ -690,44 +686,6 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env _ref -> do
       , " cacheResult on a query that involves a blocking fetch."
       ]
 
--- We must be careful about turning IO monad exceptions into Haxl
--- exceptions.  An IO monad exception will normally propagate right
--- out of runHaxl and terminate the whole computation, whereas a Haxl
--- exception can get dropped on the floor, if it is on the right of
--- <*> and the left side also throws, for example.  So turning an IO
--- monad exception into a Haxl exception is a dangerous thing to do.
--- In particular, we never want to do it for an asynchronous exception
--- (AllocationLimitExceeded, ThreadKilled, etc.), because these are
--- supposed to unconditionally terminate the computation.
---
--- There are three places where we take an arbitrary IO monad exception and
--- turn it into a Haxl exception:
---
---  * wrapFetchInCatch.  Here we want to propagate a failure of the
---    data source to the callers of the data source, but if the
---    failure came from elsewhere (an asynchronous exception), then we
---    should just propagate it
---
---  * cacheResult (cache the results of IO operations): again,
---    failures of the IO operation should be visible to the caller as
---    a Haxl exception, but we exclude asynchronous exceptions from
---    this.
-
---  * unsafeToHaxlException: assume the caller knows what they're
---    doing, and just wrap all exceptions.
---
-rethrowAsyncExceptions :: SomeException -> IO ()
-rethrowAsyncExceptions e
-#if __GLASGOW_HASKELL__ >= 708
-  | Just SomeAsyncException{} <- fromException e = Exception.throw e
-#endif
-#if __GLASGOW_HASKELL__ >= 710
-  | Just AllocationLimitExceeded{} <- fromException e = Exception.throw e
-    -- AllocationLimitExceeded is not a child of SomeAsyncException,
-    -- but it should be.
-#endif
-  | otherwise = return ()
-
 -- | Inserts a request/result pair into the cache. Throws an exception
 -- if the request has already been issued, either via 'dataFetch' or
 -- 'cacheRequest'.
@@ -863,6 +821,16 @@ wrapFetchInCatch reqs fetch =
       SyncFetch (io `Exception.catch` handler)
     AsyncFetch fio ->
       AsyncFetch (\io -> fio io `Exception.catch` handler)
+      -- this might be wrong: if the outer 'fio' throws an exception,
+      -- then we don't know whether we have executed the inner 'io' or
+      -- not.  If not, then we'll likely get some errors about "did
+      -- not set result var" later, because we haven't executed some
+      -- data fetches.  But we can't execute 'io' in the handler,
+      -- because we might have already done it.  It isn't possible to
+      -- do it completely right here, so we have to rely on data
+      -- sources themselves to catch (synchronous) exceptions.  Async
+      -- exceptions aren't a problem because we're going to rethrow
+      -- them all the way to runHaxl anyway.
   where
     handler :: SomeException -> IO ()
     handler e = do

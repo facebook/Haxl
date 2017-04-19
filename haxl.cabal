@@ -113,6 +113,7 @@ test-suite test
   other-modules:
     AdoTests
     AllTests
+    BadDataSource
     BatchTests
     Bench
     CoreTests
@@ -122,6 +123,7 @@ test-suite test
     MemoizationTests
     MockTAO
     ProfileTests
+    TestBadDataSource
     TestExampleDataSource
     TestTypes
     TestUtils
