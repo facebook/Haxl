@@ -72,6 +72,9 @@ module Haxl.Core.Exception (
   tryWithRethrow,
   ) where
 
+#if __GLASGOW_HASKELL__ <= 708
+import Control.Applicative ((<$>))
+#endif
 import Control.Exception as Exception
 import Data.Aeson
 import Data.Binary (Binary)
