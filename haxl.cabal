@@ -54,7 +54,8 @@ library
     ghc-prim,
     hashable == 1.2.*,
     pretty == 1.1.*,
-    text >= 1.1.0.1 && < 1.3,
+    -- text 1.2.1.0 required for instance Binary Text
+    text >= 1.2.1.0 && < 1.3,
     time >= 1.4 && < 1.9,
     transformers,
     unordered-containers == 0.2.*,
