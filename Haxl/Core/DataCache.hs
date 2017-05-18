@@ -28,7 +28,7 @@ import Data.Hashable
 import Prelude hiding (lookup)
 import Unsafe.Coerce
 import qualified Data.HashMap.Strict as HashMap
-import Data.Typeable.Internal
+import Data.Typeable
 import Data.Maybe
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative ((<$>))

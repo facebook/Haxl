@@ -110,7 +110,7 @@ import Data.List (intercalate, sortBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text (Text, unpack)
-import Data.Typeable.Internal
+import Data.Typeable
 
 import Haxl.Core.Exception
 #if __GLASGOW_HASKELL__ < 708
