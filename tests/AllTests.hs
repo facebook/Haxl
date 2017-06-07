@@ -5,7 +5,7 @@ import TestExampleDataSource
 import BatchTests
 import CoreTests
 import DataCacheTest
-#ifdef HAVE_APPLICATIVEDO
+#if __GLASGOW_HASKELL__ >= 801
 import AdoTests
 #endif
 #if __GLASGOW_HASKELL__ >= 710
@@ -22,7 +22,7 @@ allTests = TestList
   , TestLabel "BatchTests" BatchTests.tests
   , TestLabel "CoreTests" CoreTests.tests
   , TestLabel "DataCacheTests" DataCacheTest.tests
-#ifdef HAVE_APPLICATIVEDO
+#if __GLASGOW_HASKELL__ >= 801
   , TestLabel "AdoTests" AdoTests.tests
 #endif
 #if __GLASGOW_HASKELL__ >= 710
