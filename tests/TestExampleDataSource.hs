@@ -10,7 +10,9 @@ import Haxl.Core
 import qualified Data.HashMap.Strict as HashMap
 import Test.HUnit
 import Data.IORef
+import Data.Maybe
 import Control.Exception
+import System.Environment
 import System.FilePath
 
 import ExampleDataSource
@@ -174,7 +176,12 @@ dumpCacheTest = TestCase $ do
   env <- testEnv
   runHaxl env loadCache
   str <- runHaxl env dumpCacheAsHaskell
-  loadcache <- readFile $ dropFileName __FILE__ </> "LoadCache.txt"
+  lcPath <- loadCachePath
+  loadcache <- readFile lcPath
   -- The order of 'cacheRequest ...' calls is nondeterministic and
   -- differs among GHC versions, so we sort the lines for comparison.
   assertEqual "dumpCacheAsHaskell" (sort $ lines loadcache) (sort $ lines str)
+  where
+    loadCachePath = do
+      lcEnv <- lookupEnv "LOADCACHE"
+      return $ fromMaybe (dropFileName __FILE__ </> "LoadCache.txt") lcEnv
