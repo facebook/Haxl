@@ -298,7 +298,7 @@ runHaxl env h = do
             n' <- performFetches n env bs
             traceEventIO "STOP performFetches"
             when (caching (flags env) == 0) $
-              writeIORef (cacheRef env) DataCache.empty
+              writeIORef (cacheRef env) emptyDataCache
             go n' env cont
   traceEventIO "START runHaxl"
   r <- go 0 env (Cont h)
