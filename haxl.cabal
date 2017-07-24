@@ -16,7 +16,8 @@ cabal-version:       >= 1.10
 tested-with:
   GHC==7.8.4,
   GHC==7.10.3,
-  GHC==8.0.2
+  GHC==8.0.2,
+  GHC==8.2.1
 
 description:
   Haxl is a library and EDSL for efficient scheduling of concurrent data
@@ -98,6 +99,7 @@ test-suite test
     test-framework,
     test-framework-hunit,
     text,
+    time,
     unordered-containers
 
   ghc-options:
