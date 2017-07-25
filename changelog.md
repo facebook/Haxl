@@ -1,3 +1,10 @@
+# Changes in version 0.5.1.0
+
+  * 'pAnd' and 'pOr' were added
+  * 'asyncFetchAcquireRelease' was added
+  * 'cacheResultWithShow' was exposed
+  * GHC 8.2.1 compatibility
+
 # Changes in version 0.5.0.0
   * Rename 'Show1' to 'ShowP' ([#62](https://github.com/facebook/Haxl/issues/62))
 
