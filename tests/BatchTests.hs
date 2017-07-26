@@ -188,7 +188,7 @@ pOrTests = do
         return (not a && b && c && d)
   assertBool "pOr0" r
 
-  -- pOr is left-biased with respsect to exceptions:
+  -- pOr is left-biased with respect to exceptions:
   r <- runHaxl env $ try $ return True `pOr` throw (NotFound "foo")
   assertBool "pOr1" $
     case (r :: Either NotFound Bool) of
@@ -236,7 +236,7 @@ pAndTests = do
         return (not a && not b && not c && d)
   assertBool "pAnd0" r
 
-  -- pAnd is left-biased with respsect to exceptions:
+  -- pAnd is left-biased with respect to exceptions:
   r <- runHaxl env $ try $ return False `pAnd` throw (NotFound "foo")
   assertBool "pAnd1" $
     case (r :: Either NotFound Bool) of
