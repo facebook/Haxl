@@ -620,7 +620,7 @@ addProfileFetch env req = do
 -- normal read requests, because then multiple identical requests may
 -- return different results, and this invalidates some of the
 -- properties that we expect Haxl computations to respect: that data
--- fetches can be aribtrarily reordered, and identical requests can be
+-- fetches can be arbitrarily reordered, and identical requests can be
 -- commoned up, for example.
 --
 -- 'uncachedRequest' is useful for performing writes, provided those
