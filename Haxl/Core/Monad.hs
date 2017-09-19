@@ -40,7 +40,7 @@ module Haxl.Core.Monad (
 
     -- * Data fetching and caching
     ShowReq, dataFetch, dataFetchWithShow, uncachedRequest, cacheRequest,
-    cacheResult, cacheResultWithShow, cachedComputation,
+    cacheResult, cacheResultWithShow, cachedComputation, preCacheComputation,
     dumpCacheAsHaskell, dumpCacheAsHaskellFn,
 
     -- * Memoization Machinery
@@ -987,6 +987,34 @@ cachedComputation req haxl = do
 -- | Lifts an 'Either' into either 'Throw' or 'Done'.
 done :: Either SomeException a -> IO (Result u a)
 done = return . either Throw Done
+
+-- | Like 'cachedComputation', but fails if the cache is already
+-- populated.
+--
+-- Memoization can be (ab)used to "mock" a cached computation, by
+-- pre-populating the cache with an alternative implementation. In
+-- that case we don't want the operation to populate the cache to
+-- silently succeed if the cache is already populated.
+--
+preCacheComputation
+  :: forall req u a.
+     ( Eq (req a)
+     , Hashable (req a)
+     , Typeable (req a))
+  => req a -> GenHaxl u a -> GenHaxl u a
+preCacheComputation req haxl = do
+  env <- env id
+  cache <- unsafeLiftIO $ readIORef (memoRef env)
+  unsafeLiftIO $ ifProfiling (flags env) $
+    modifyIORef' (profRef env) (incrementMemoHitCounterFor (profLabel env))
+  case DataCache.lookup req cache of
+    Nothing -> do
+      memoVar <- newMemoWith haxl
+      unsafeLiftIO $ writeIORef (memoRef env) $!
+        DataCache.insertNotShowable req memoVar cache
+      runMemo memoVar
+    Just _ -> throw $ InvalidParameter $
+      "preCacheComputation: key is already cached"
 
 -- -----------------------------------------------------------------------------
 

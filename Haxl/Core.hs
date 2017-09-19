@@ -26,7 +26,8 @@ module Haxl.Core (
 
   -- ** Data fetching and caching
   dataFetch, uncachedRequest,
-  cacheRequest, cacheResult, cacheResultWithShow, cachedComputation,
+  cacheRequest, cacheResult, cacheResultWithShow,
+  cachedComputation, preCacheComputation,
   dumpCacheAsHaskell,
 
   -- ** Memoization
