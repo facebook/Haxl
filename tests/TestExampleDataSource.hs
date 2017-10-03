@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP, OverloadedStrings, RebindableSyntax, MultiWayIf #-}
+{-# LANGUAGE RecordWildCards #-}
 module TestExampleDataSource (tests) where
 
 import Haxl.Prelude as Haxl
@@ -7,7 +8,6 @@ import Prelude()
 import Haxl.Core.Monad (unsafeLiftIO)
 import Haxl.Core
 
-import qualified Data.HashMap.Strict as HashMap
 import Test.HUnit
 import Data.IORef
 import Data.Maybe
@@ -26,7 +26,8 @@ testEnv = do
   let st = stateSet exstate stateEmpty
 
   -- Create the Env:
-  initEnv st ()
+  env <- initEnv st ()
+  return env{ flags = (flags env){ report = 2 } }
 
 
 tests = TestList [
@@ -34,9 +35,12 @@ tests = TestList [
   TestLabel "orderTest" orderTest,
   TestLabel "preCacheTest" preCacheTest,
   TestLabel "cachedComputationTest" cachedComputationTest,
+  TestLabel "cacheResultTest" cacheResultTest,
   TestLabel "memoTest" memoTest,
   TestLabel "dataSourceExceptionTest" dataSourceExceptionTest,
-  TestLabel "dumpCacheAsHaskell" dumpCacheTest]
+  TestLabel "dumpCacheAsHaskell" dumpCacheTest,
+  TestLabel "fetchError" fetchError
+  ]
 
 -- Let's test ExampleDataSource.
 
@@ -52,14 +56,15 @@ exampleTest = TestCase $ do
 
   -- Should be just one fetching round:
   Stats stats <- readIORef (statsRef env)
+  putStrLn (ppStats (Stats stats))
   assertEqual "rounds" 1 (length stats)
 
   -- With two fetches:
   assertBool "reqs" $
-      if | RoundStats { roundDataSources = m } : _  <- stats,
-           Just (DataSourceRoundStats { dataSourceFetches = 2 })
-              <- HashMap.lookup "ExampleDataSource" m  -> True
-         | otherwise -> False
+    case stats of
+       [FetchStats{..}] ->
+         fetchDataSource == "ExampleDataSource" && fetchBatchSize == 2
+       _otherwise -> False
 
 -- Test side-effect ordering
 
@@ -97,8 +102,8 @@ preCacheTest = TestCase $ do
 
   x <- runHaxl env $ do
     cacheRequest (CountAardvarks "xxx") (Right 3)
-    cacheRequest (ListWombats 100) (Right [1,2,3])
-    countAardvarks "xxx" + (length <$> listWombats 100)
+    cacheRequest (ListWombats 1000000) (Right [1,2,3])
+    countAardvarks "xxx" + (length <$> listWombats 1000000)
   assertEqual "preCacheTest1" x (3 + 3)
 
   y <- Control.Exception.try $ runHaxl env $ do
@@ -126,6 +131,16 @@ cachedComputationTest = TestCase $ do
   stats <- readIORef (statsRef env)
   assertEqual "fetches" 3 (numFetches stats)
 
+cacheResultTest = TestCase $ do
+  env <- testEnv
+  ref <- newIORef 0
+  let request = cacheResult (CountAardvarks "ababa") $ do
+         modifyIORef ref (+1)
+         readIORef ref
+  r <- runHaxl env $ (+) <$> request <*> request
+  assertEqual "cacheResult" 2 r
+
+
 -- Pretend CountAardvarks is a request computed by some Haxl code
 memoTest = TestCase $ do
   env <- testEnv
@@ -142,6 +157,18 @@ memoTest = TestCase $ do
 
   stats <- readIORef (statsRef env)
   assertEqual "fetches" 3 (numFetches stats)
+
+-- Test that the FetchError gets returned properly, and that we have
+-- a failure logged in the stats.
+fetchError = TestCase $ do
+  env <- testEnv
+  r <- runHaxl env $ Haxl.try $
+    (++) <$> listWombats 1000000 <*> listWombats 1000001
+  assertBool "fetchError1" $ case r of
+    Left FetchError{} -> True
+    Right _ -> False
+  Stats stats <- readIORef (statsRef env)
+  assertEqual "fetchError2" 2 (sum [ fetchFailures | FetchStats{..} <- stats ])
 
 dataSourceExceptionTest = TestCase $ do
   env <- testEnv

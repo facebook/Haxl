@@ -117,10 +117,9 @@ initGlobalState = do
 exampleFetch :: State ExampleReq             -- current state
              -> Flags                        -- tracing verbosity, etc.
              -> u                            -- user environment
-             -> [BlockedFetch ExampleReq]    -- requests to fetch
-             -> PerformFetch                 -- tells the framework how to fetch
+             -> PerformFetch ExampleReq      -- tells the framework how to fetch
 
-exampleFetch _state _flags _user bfs = SyncFetch $ mapM_ fetch1 bfs
+exampleFetch _state _flags _user = SyncFetch $ mapM_ fetch1
 
   -- There are two ways a data source can fetch data: synchronously or
   -- asynchronously.  See the type 'PerformFetch' in "Haxl.Core.Types" for
@@ -150,8 +149,8 @@ fetch1 (BlockedFetch (ListWombats a) r) =
 -- Normally a data source will provide some convenient wrappers for
 -- its requests:
 
-countAardvarks :: String -> GenHaxl () Int
+countAardvarks :: String -> GenHaxl u Int
 countAardvarks str = dataFetch (CountAardvarks str)
 
-listWombats :: Id -> GenHaxl () [Id]
+listWombats :: Id -> GenHaxl u [Id]
 listWombats i = dataFetch (ListWombats i)

@@ -58,6 +58,7 @@ library
     -- text 1.2.1.0 required for instance Binary Text
     text >= 1.2.1.0 && < 1.3,
     time >= 1.4 && < 1.9,
+    stm == 2.4.*,
     transformers,
     unordered-containers == 0.2.*,
     vector >= 0.10 && <0.13
@@ -80,6 +81,7 @@ library
   default-language: Haskell2010
 
   ghc-options:
+    -O2 -fprof-auto
     -Wall
 
 
@@ -122,10 +124,12 @@ test-suite test
     CoreTests
     DataCacheTest
     ExampleDataSource
+    FullyAsyncTest
     LoadCache
     MemoizationTests
     MockTAO
     ProfileTests
+    SleepDataSource
     TestBadDataSource
     TestExampleDataSource
     TestTypes

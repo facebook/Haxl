@@ -5,11 +5,11 @@
 module Bench where
 
 import Haxl.Core.DataCache as DataCache
-import Haxl.Core.Types
 
 import Prelude hiding (mapM)
 
 import Data.Hashable
+import Data.IORef
 import Data.Time.Clock
 import Data.Traversable
 import Data.Typeable
@@ -36,12 +36,12 @@ main = do
   let
      f 0  !cache = return cache
      f !n !cache = do
-       m <- newResult 0
+       m <- newIORef 0
        f (n-1) (DataCache.insert (ReqInt n) m cache)
   --
   cache <- f n emptyDataCache
   let m = DataCache.lookup (ReqInt (n `div` 2)) cache
-  print =<< mapM takeResult m
+  print =<< mapM readIORef m
   t1 <- getCurrentTime
   printf "insert: %.2fs\n" (realToFrac (t1 `diffUTCTime` t0) :: Double)
 

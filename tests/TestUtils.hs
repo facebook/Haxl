@@ -40,11 +40,12 @@ id3 = lookupInput "C"
 id4 :: Haxl Id
 id4 = lookupInput "D"
 
-makeTestEnv :: IO (Env UserEnv)
-makeTestEnv = do
-  tao <- MockTAO.initGlobalState
+makeTestEnv :: Bool -> IO (Env UserEnv)
+makeTestEnv future = do
+  tao <- MockTAO.initGlobalState future
   let st = stateSet tao stateEmpty
-  initEnv st testinput
+  env <- initEnv st testinput
+  return env { flags = (flags env) { report = 2 } }
 
 expectRoundsWithEnv
   :: (Eq a, Show a) => Int -> a -> Haxl a -> Env UserEnv -> Assertion
@@ -54,14 +55,14 @@ expectRoundsWithEnv n result haxl env = do
   stats <- readIORef (statsRef env)
   assertEqual "rounds" n (numRounds stats)
 
-expectRounds :: (Eq a, Show a) => Int -> a -> Haxl a -> Assertion
-expectRounds n result haxl = do
-  env <- makeTestEnv
+expectRounds :: (Eq a, Show a) => Int -> a -> Haxl a -> Bool -> Assertion
+expectRounds n result haxl future = do
+  env <- makeTestEnv future
   expectRoundsWithEnv n result haxl env
 
-expectFetches :: (Eq a, Show a) => Int -> Haxl a -> Assertion
-expectFetches n haxl = do
-  env <- makeTestEnv
+expectFetches :: (Eq a, Show a) => Int -> Haxl a -> Bool -> Assertion
+expectFetches n haxl future = do
+  env <- makeTestEnv future
   _ <- runHaxl env haxl
   stats <- readIORef (statsRef env)
   assertEqual "fetches" n (numFetches stats)

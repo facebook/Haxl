@@ -127,20 +127,20 @@ caching3_ = if nf id1 .> 0 then nf id1 + nf id2 + nf id3 else 0
 --
 -- Basic sanity check on data-cache re-use
 --
-cacheReuse = do
-  env <- makeTestEnv
+cacheReuse future = do
+  env <- makeTestEnv future
   expectRoundsWithEnv 2 12 batching7_ env
 
   -- make a new env
-  tao <- MockTAO.initGlobalState
+  tao <- MockTAO.initGlobalState future
   let st = stateSet tao stateEmpty
   env2 <- initEnvWithData st testinput (caches env)
 
   -- ensure no more data fetching rounds needed
   expectRoundsWithEnv 0 12 batching7_ env2
 
-noCaching = do
-  env <- makeTestEnv
+noCaching future = do
+  env <- makeTestEnv future
   let env' = env{ flags = (flags env){caching = 0} }
   result <- runHaxl env' caching3_
   assertEqual "result" result 18
@@ -155,8 +155,8 @@ exceptionTest2 = expectRounds 1 [7..12] $ liftA2 (++)
   (withDefault [] (friendsOf 101))
   (withDefault [] (friendsOf 2))
 
-deterministicExceptions = do
-  env <- makeTestEnv
+deterministicExceptions future = do
+  env <- makeTestEnv future
   let haxl =
         sequence [ do _ <- friendsOf =<< id1; throw (NotFound "xxx")
                  , throw (NotFound "yyy")
@@ -176,8 +176,8 @@ deterministicExceptions = do
      Left (NotFound "xxx") -> True
      _ -> False
 
-pOrTests = do
-  env <- makeTestEnv
+pOrTests future = do
+  env <- makeTestEnv future
 
   -- Test semantics
   r <- runHaxl env $ do
@@ -224,8 +224,8 @@ pOrTests = do
       Left (NotFound _) -> True
       _ -> False
 
-pAndTests = do
-  env <- makeTestEnv
+pAndTests future = do
+  env <- makeTestEnv future
 
   -- Test semantics
   r <- runHaxl env $ do
@@ -273,24 +273,26 @@ pAndTests = do
       Left (NotFound _) -> True
       _ -> False
 
-tests = TestList
-  [ TestLabel "batching1" $ TestCase batching1
-  , TestLabel "batching2" $ TestCase batching2
-  , TestLabel "batching3" $ TestCase batching3
-  , TestLabel "batching4" $ TestCase batching4
-  , TestLabel "batching5" $ TestCase batching5
-  , TestLabel "batching6" $ TestCase batching6
-  , TestLabel "batching7" $ TestCase batching7
-  , TestLabel "batching8" $ TestCase batching8
-  , TestLabel "batching9" $ TestCase batching9
-  , TestLabel "caching1" $ TestCase caching1
-  , TestLabel "caching2" $ TestCase caching2
-  , TestLabel "caching3" $ TestCase caching3
-  , TestLabel "CacheReuse" $ TestCase cacheReuse
-  , TestLabel "NoCaching" $ TestCase noCaching
-  , TestLabel "exceptionTest1" $ TestCase exceptionTest1
-  , TestLabel "exceptionTest2" $ TestCase exceptionTest2
-  , TestLabel "deterministicExceptions" $ TestCase deterministicExceptions
-  , TestLabel "pOrTest" $ TestCase pOrTests
-  , TestLabel "pAndTest" $ TestCase pAndTests
+tests :: Bool -> Test
+tests future = TestList
+  [ TestLabel "batching1" $ TestCase (batching1 future)
+  , TestLabel "batching2" $ TestCase (batching2 future)
+  , TestLabel "batching3" $ TestCase (batching3 future)
+  , TestLabel "batching4" $ TestCase (batching4 future)
+  , TestLabel "batching5" $ TestCase (batching5 future)
+  , TestLabel "batching6" $ TestCase (batching6 future)
+  , TestLabel "batching7" $ TestCase (batching7 future)
+  , TestLabel "batching8" $ TestCase (batching8 future)
+  , TestLabel "batching9" $ TestCase (batching9 future)
+  , TestLabel "caching1" $ TestCase (caching1 future)
+  , TestLabel "caching2" $ TestCase (caching2 future)
+  , TestLabel "caching3" $ TestCase (caching3 future)
+  , TestLabel "CacheReuse" $ TestCase (cacheReuse future)
+  , TestLabel "NoCaching" $ TestCase (noCaching future)
+  , TestLabel "exceptionTest1" $ TestCase (exceptionTest1 future)
+  , TestLabel "exceptionTest2" $ TestCase (exceptionTest2 future)
+  , TestLabel "deterministicExceptions" $
+      TestCase (deterministicExceptions future)
+  , TestLabel "pOrTest" $ TestCase (pOrTests future)
+  , TestLabel "pAndTest" $ TestCase (pAndTests future)
   ]

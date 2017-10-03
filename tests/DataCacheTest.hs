@@ -1,7 +1,8 @@
 {-# LANGUAGE StandaloneDeriving, GADTs, DeriveDataTypeable #-}
-module DataCacheTest (tests) where
+module DataCacheTest (tests, newResult, takeResult) where
 
 import Haxl.Core.DataCache as DataCache
+import Haxl.Core.Monad
 import Haxl.Core
 
 import Control.Exception
@@ -10,6 +11,7 @@ import Data.Traversable
 import Data.Typeable
 import Prelude hiding (mapM)
 import Test.HUnit
+import Data.IORef
 
 data TestReq a where
    Req :: Int -> TestReq a -- polymorphic result
@@ -20,6 +22,16 @@ deriving instance Show (TestReq a)
 
 instance Hashable (TestReq a) where
   hashWithSalt salt (Req i) = hashWithSalt salt i
+
+newResult :: a -> IO (IVar u a)
+newResult a = IVar <$> newIORef (IVarFull (Ok a))
+
+takeResult :: IVar u a -> IO (ResultVal a)
+takeResult (IVar ref) = do
+  e <- readIORef ref
+  case e of
+    IVarFull a -> return a
+    _ -> error "takeResult"
 
 
 dcSoundnessTest :: Test
@@ -35,25 +47,25 @@ dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
   -- with a result of type String, we should get Nothing, not a crash.
   r <- mapM takeResult $ DataCache.lookup (Req 1) cache
   assertBool "dcSoundness1" $
-    case r :: Maybe (Either SomeException String) of
+    case r :: Maybe (ResultVal String) of
      Nothing -> True
      _something_else -> False
 
   r <- mapM takeResult $ DataCache.lookup (Req 1) cache
   assertBool "dcSoundness2" $
-    case r :: Maybe (Either SomeException Int) of
-     Just (Right 1) -> True
+    case r :: Maybe (ResultVal Int) of
+     Just (Ok 1) -> True
      _something_else -> False
 
   r <- mapM takeResult $ DataCache.lookup (Req 2) cache
   assertBool "dcSoundness3" $
-    case r :: Maybe (Either SomeException String) of
-      Just (Right "hello") -> True
+    case r :: Maybe (ResultVal String) of
+      Just (Ok "hello") -> True
       _something_else -> False
 
   r <- mapM takeResult $ DataCache.lookup (Req 2) cache
   assertBool "dcSoundness4" $
-    case r :: Maybe (Either SomeException Int) of
+    case r :: Maybe (ResultVal Int) of
       Nothing -> True
       _something_else -> False
 

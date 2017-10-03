@@ -3,7 +3,6 @@
 module ProfileTests where
 
 import Haxl.Prelude
-import Data.List
 
 import Haxl.Core
 import Haxl.Core.Monad
@@ -12,6 +11,7 @@ import Test.HUnit
 
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
+import Data.Aeson
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
@@ -19,7 +19,7 @@ import qualified Data.HashSet as HashSet
 import TestUtils
 
 mkProfilingEnv = do
-  env <- makeTestEnv
+  env <- makeTestEnv False
   return env { flags = (flags env) { report = 4 } }
 
 collectsdata :: Assertion
@@ -29,17 +29,20 @@ collectsdata = do
           withLabel "bar" $
             withLabel "foo" $ do
               u <- env userEnv
-              if length (intersect (HashMap.keys u) ["c"]) > 1
-              then return 5
-              else return (4::Int)
+              -- do some non-trivial work that can't be lifted out
+              case fromJSON <$> HashMap.lookup "A" u of
+                Just (Success n) | sum [n .. 1000::Integer] > 0 -> return 5
+                _otherwise -> return (4::Int)
   profData <- profile <$> readIORef (profRef e)
   assertEqual "has data" 3 $ HashMap.size profData
   assertBool "foo allocates" $
     case profileAllocs <$> HashMap.lookup "foo" profData of
-      Just x -> x > 0
+      Just x -> x > 10000
       Nothing -> False
-  assertEqual "bar does not allocate" (Just 0) $
-    profileAllocs <$> HashMap.lookup "bar" profData
+  assertBool "bar does not allocate (much)" $
+    case profileAllocs <$> HashMap.lookup "bar" profData of
+      Just n -> n < 5000  -- getAllocationCounter can be off by +/- 4K
+      _otherwise -> False
   assertEqual "foo's parent" (Just ["bar"]) $
     HashSet.toList . profileDeps <$> HashMap.lookup "foo" profData
 

@@ -35,21 +35,18 @@ module Haxl.Core.Types (
 
   -- * Statistics
   Stats(..),
-  RoundStats(..),
-  DataSourceRoundStats(..),
+  FetchStats(..),
   Microseconds,
-  Round,
+  Timestamp,
+  getTimestamp,
   emptyStats,
   numRounds,
   numFetches,
   ppStats,
-  ppRoundStats,
-  ppDataSourceRoundStats,
+  ppFetchStats,
   Profile,
   emptyProfile,
   profile,
-  profileRound,
-  profileCache,
   ProfileLabel,
   ProfileData(..),
   emptyProfileData,
@@ -62,6 +59,7 @@ module Haxl.Core.Types (
   Request,
   BlockedFetch(..),
   PerformFetch(..),
+  SchedulerHint(..),
 
   -- * DataCache
   DataCache(..),
@@ -70,14 +68,10 @@ module Haxl.Core.Types (
 
   -- * Result variables
   ResultVar(..),
-  newEmptyResult,
-  newResult,
+  mkResultVar,
   putFailure,
   putResult,
   putSuccess,
-  takeResult,
-  tryReadResult,
-  tryTakeResult,
 
   -- * Default fetch implementations
   asyncFetch, asyncFetchWithDispatch,
@@ -94,23 +88,21 @@ module Haxl.Core.Types (
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative
 #endif
-import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Data.Aeson
-import Data.Function (on)
-import Data.Functor.Constant
 import Data.Int
 import Data.Hashable
-import Data.HashMap.Strict (HashMap, toList)
+import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
-import Data.List (intercalate, sortBy)
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Text (Text, unpack)
-import Data.Typeable
+import Data.List (intercalate)
+import Data.Text (Text)
+import qualified Data.Text as Text
+import Data.Time.Clock.POSIX
+import Data.Typeable.Internal
+import Text.Printf
 
 import Haxl.Core.Exception
 #if __GLASGOW_HASKELL__ < 708
@@ -127,18 +119,23 @@ data Flags = Flags
   { trace :: {-# UNPACK #-} !Int
     -- ^ Tracing level (0 = quiet, 3 = very verbose).
   , report :: {-# UNPACK #-} !Int
-    -- ^ Report level (0 = quiet, 1 = # of requests, 2 = time, 3 = # of errors,
-    -- 4 = profiling, 5 = log stack traces of dataFetch calls)
+    -- ^ Report level:
+    --    * 0 = quiet
+    --    * 1 = quiet (legacy, this used to do something)
+    --    * 2 = data fetch stats & errors
+    --    * 3 = (same as 2, this used to enable errors)
+    --    * 4 = profiling
+    --    * 5 = log stack traces of dataFetch calls
   , caching :: {-# UNPACK #-} !Int
     -- ^ Non-zero if caching is enabled.  If caching is disabled, then
-    -- we still do batching and de-duplication within a round, but do
-    -- not cache results between rounds.
+    -- we still do batching and de-duplication, but do not cache
+    -- results.
   }
 
 defaultFlags :: Flags
 defaultFlags = Flags
   { trace = 0
-  , report = 1
+  , report = 0
   , caching = 1
   }
 
@@ -162,36 +159,47 @@ ifProfiling flags = when (report flags >= 4) . void
 #undef FUNMONAD
 
 -- ---------------------------------------------------------------------------
+-- Measuring time
+
+type Microseconds = Int64
+type Timestamp = Microseconds -- since an epoch
+
+getTimestamp :: IO Timestamp
+getTimestamp = do
+  t <- getPOSIXTime -- for now, TODO better
+  return (round (t * 1000000))
+
+-- ---------------------------------------------------------------------------
 -- Stats
 
-type Microseconds = Int
--- | Rounds are 1-indexed
-type Round = Int
-
 -- | Stats that we collect along the way.
-newtype Stats = Stats [RoundStats]
+newtype Stats = Stats [FetchStats]
   deriving (Show, ToJSON)
 
 -- | Pretty-print Stats.
 ppStats :: Stats -> String
 ppStats (Stats rss) =
   intercalate "\n"
-     [ "Round: " ++ show i ++ " - " ++ ppRoundStats rs
-     | (i, rs) <- zip [(1::Int)..] (filter isRoundStats (reverse rss)) ]
+     [ "Fetch: " ++ show i ++ " - " ++ ppFetchStats rs
+     | (i, rs) <- zip [(1::Int)..] (filter isFetchStats (reverse rss)) ]
  where
-  isRoundStats RoundStats{} = True
-  isRoundStats _ = False
+  isFetchStats FetchStats{} = True
+  isFetchStats _ = False
 
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
 -- round.
-data RoundStats
-    -- | Timing stats for a round of data fetching
-  = RoundStats
-    { roundTime :: Microseconds
-    , roundAllocation :: Int
-    , roundDataSources :: HashMap Text DataSourceRoundStats
+data FetchStats
+    -- | Timing stats for a (batched) data fetch
+  = FetchStats
+    { fetchDataSource :: Text
+    , fetchBatchSize :: {-# UNPACK #-} !Int
+    , fetchStart :: !Timestamp          -- TODO should be something else
+    , fetchDuration :: {-# UNPACK #-} !Microseconds
+    , fetchSpace :: {-# UNPACK #-} !Int64
+    , fetchFailures :: {-# UNPACK #-} !Int
     }
+
     -- | The stack trace of a call to 'dataFetch'.  These are collected
     -- only when profiling and reportLevel is 5 or greater.
   | FetchCall
@@ -201,61 +209,35 @@ data RoundStats
   deriving (Show)
 
 -- | Pretty-print RoundStats.
-ppRoundStats :: RoundStats -> String
-ppRoundStats (RoundStats t a dss) =
-    show t ++ "us " ++ show a ++ " bytes\n"
-      ++ unlines [ "  " ++ unpack nm ++ ": " ++ ppDataSourceRoundStats dsrs
-                 | (nm, dsrs) <- sortBy (compare `on` fst) (toList dss) ]
-ppRoundStats (FetchCall r ss) = show r ++ '\n':show ss
+ppFetchStats :: FetchStats -> String
+ppFetchStats FetchStats{..} =
+  printf "%s: %d fetches (%.2fms, %d bytes, %d failures)"
+    (Text.unpack fetchDataSource) fetchBatchSize
+    (fromIntegral fetchDuration / 1000 :: Double)  fetchSpace fetchFailures
+ppFetchStats (FetchCall r ss) = show r ++ '\n':show ss
 
-instance ToJSON RoundStats where
-  toJSON RoundStats{..} = object
-    [ "time" .= roundTime
-    , "allocation" .= roundAllocation
-    , "dataSources" .= roundDataSources
+instance ToJSON FetchStats where
+  toJSON FetchStats{..} = object
+    [ "datasource" .= fetchDataSource
+    , "fetches" .= fetchBatchSize
+    , "start" .= fetchStart
+    , "duration" .= fetchDuration
+    , "allocation" .= fetchSpace
+    , "failures" .= fetchFailures
     ]
   toJSON (FetchCall req strs) = object
     [ "request" .= req
     , "stack" .= strs
     ]
 
--- | Detailed stats of each data source in each round.
-data DataSourceRoundStats = DataSourceRoundStats
-  { dataSourceFetches :: Int
-  , dataSourceTime :: Maybe Microseconds
-  , dataSourceFailures :: Maybe Int
-  , dataSourceAllocation :: Maybe Int
-  } deriving (Show)
-
--- | Pretty-print DataSourceRoundStats
-ppDataSourceRoundStats :: DataSourceRoundStats -> String
-ppDataSourceRoundStats (DataSourceRoundStats fetches time failures allocs) =
-  maybe id (\t s -> s ++ " (" ++ show t ++ "us)") time $
-  maybe id (\a s -> s ++ " (" ++ show a ++ " bytes)") allocs $
-  maybe id (\f s -> s ++ " " ++ show f ++ " failures") failures $
-  show fetches ++ " fetches"
-
-instance ToJSON DataSourceRoundStats where
-  toJSON DataSourceRoundStats{..} = object [k .= v | (k, Just v) <-
-    [ ("fetches", Just dataSourceFetches)
-    , ("time", dataSourceTime)
-    , ("failures", dataSourceFailures)
-    , ("allocation", dataSourceAllocation)
-    ]]
-
-fetchesInRound :: RoundStats -> Int
-fetchesInRound (RoundStats _ _ hm) =
-  sum $ map dataSourceFetches $ HashMap.elems hm
-fetchesInRound _ = 0
-
 emptyStats :: Stats
 emptyStats = Stats []
 
 numRounds :: Stats -> Int
-numRounds (Stats rs) = length [ s | s@RoundStats{} <- rs ]
+numRounds (Stats rs) = length rs        -- not really
 
 numFetches :: Stats -> Int
-numFetches (Stats rs) = sum (map fetchesInRound rs)
+numFetches (Stats rs) = sum [ fetchBatchSize | FetchStats{..} <- rs ]
 
 
 -- ---------------------------------------------------------------------------
@@ -265,42 +247,36 @@ type ProfileLabel = Text
 type AllocCount = Int64
 type MemoHitCount = Int64
 
-data Profile = Profile
-  { profileRound :: {-# UNPACK #-} !Round
-     -- ^ Keep track of what the current fetch round is.
-  , profile      :: HashMap ProfileLabel ProfileData
+newtype Profile = Profile
+  { profile      :: HashMap ProfileLabel ProfileData
      -- ^ Data on individual labels.
-  , profileCache :: DataCache (Constant Round)
-     -- ^ Keep track of the round requests first appear in.
   }
 
 emptyProfile :: Profile
-emptyProfile = Profile 1 HashMap.empty emptyDataCache
+emptyProfile = Profile HashMap.empty
 
 data ProfileData = ProfileData
   { profileAllocs :: {-# UNPACK #-} !AllocCount
      -- ^ allocations made by this label
   , profileDeps :: HashSet ProfileLabel
      -- ^ labels that this label depends on
-  , profileFetches :: Map Round (HashMap Text Int)
-     -- ^ map from round to {datasource name => fetch count}
+  , profileFetches :: HashMap Text Int
+     -- ^ map from datasource name => fetch count
   , profileMemoHits :: {-# UNPACK #-} !MemoHitCount
     -- ^ number of hits to memoized computation at this label
   }
   deriving Show
 
 emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 HashSet.empty Map.empty 0
+emptyProfileData = ProfileData 0 HashSet.empty HashMap.empty 0
 
 -- ---------------------------------------------------------------------------
 -- DataCache
 
--- | The 'DataCache' maps things of type @f a@ to @'ResultVar' a@, for
--- any @f@ and @a@ provided @f a@ is an instance of 'Typeable'. In
--- practice @f a@ will be a request type parameterised by its result.
+-- | A @'DataCache' res@ maps things of type @req a@ to @res a@, for
+-- any @req@ and @a@ provided @req a@ is an instance of 'Typeable'. In
+-- practice @req a@ will be a request type parameterised by its result.
 --
--- See the definition of 'ResultVar' for more details.
-
 newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
 
 -- | The implementation is a two-level map: the outer level maps the
@@ -308,6 +284,7 @@ newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
 -- results.  So each 'SubCache' contains requests of the same type.
 -- This works well because we only have to store the dictionaries for
 -- 'Hashable' and 'Eq' once per request type.
+--
 data SubCache res =
   forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
        SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
@@ -344,10 +321,11 @@ class (DataSourceName req, StateKey req, ShowP req) => DataSource u req where
       -- ^ Tracing flags.
     -> u
       -- ^ User environment.
-    -> [BlockedFetch req]
-      -- ^ Requests to fetch.
-    -> PerformFetch
+    -> PerformFetch req
       -- ^ Fetch the data; see 'PerformFetch'.
+
+  schedulerHint :: u -> SchedulerHint req
+  schedulerHint _ = TryToBatch
 
 class DataSourceName req where
   -- | The name of this 'DataSource', used in tracing and stats. Must
@@ -369,29 +347,46 @@ type Request req a =
   , Show a
   )
 
--- | A data source can fetch data in one of two ways.
---
---   * Synchronously ('SyncFetch'): the fetching operation is an
---     @'IO' ()@ that fetches all the data and then returns.
---
---   * Asynchronously ('AsyncFetch'): we can do something else while the
---     data is being fetched. The fetching operation takes an @'IO' ()@ as
---     an argument, which is the operation to perform while the data is
---     being fetched.
---
--- See 'syncFetch' and 'asyncFetch' for example usage.
---
-data PerformFetch
-  = SyncFetch  (IO ())
-  | AsyncFetch (IO () -> IO ())
+-- | Hints to the scheduler about this data source
+data SchedulerHint (req :: * -> *)
+  = TryToBatch
+    -- ^ Hold data-source requests while we execute as much as we can, so
+    -- that we can hopefully collect more requests to batch.
+  | SubmitImmediately
+    -- ^ Submit a request via fetch as soon as we have one, don't try to
+    -- batch multiple requests.  This is really only useful if the data source
+    -- returns BackgroundFetch, otherwise requests to this data source will
+    -- be performed synchronously, one at a time.
 
--- Why does AsyncFetch contain a `IO () -> IO ()` rather than the
--- alternative approach of returning the `IO` action to retrieve the
--- results, which might seem better: `IO (IO ())`?  The point is that
--- this allows the data source to acquire resources for the purpose of
--- this fetching round using the standard `bracket` pattern, so it can
--- ensure that the resources acquired are properly released even if
--- other data sources fail.
+-- | A data source can fetch data in one of four ways.
+--
+data PerformFetch req
+  = SyncFetch  ([BlockedFetch req] -> IO ())
+    -- ^ Fully synchronous, returns only when all the data is fetched.
+    -- See 'syncFetch' for an example.
+  | AsyncFetch ([BlockedFetch req] -> IO () -> IO ())
+    -- ^ Asynchronous; performs an arbitrary IO action while the data
+    -- is being fetched, but only returns when all the data is
+    -- fetched.  See 'asyncFetch' for an example.
+  | BackgroundFetch ([BlockedFetch req] -> IO ())
+    -- ^ Fetches the data in the background, calling 'putResult' at
+    -- any time in the future.  This is the best kind of fetch,
+    -- because it provides the most concurrency.
+  | FutureFetch ([BlockedFetch req] -> IO (IO ()))
+    -- ^ Returns an IO action that, when performed, waits for the data
+    -- to be received.  This is the second-best type of fetch, because
+    -- the scheduler still has to perform the blocking wait at some
+    -- point in the future, and when it has multiple blocking waits to
+    -- perform, it can't know which one will return first.
+    --
+    -- Why not just forkIO the IO action to make a FutureFetch into a
+    -- BackgroundFetch?  The blocking wait will probably do a safe FFI
+    -- call, which means it needs its own OS thread.  If we don't want
+    -- to create an arbitrary number of OS threads, then FutureFetch
+    -- enables all the blocking waits to be done on a single thread.
+    -- Also, you might have a data source that requires all calls to
+    -- be made in the same OS thread.
+
 
 -- | A 'BlockedFetch' is a pair of
 --
@@ -412,40 +407,15 @@ data PerformFetch
 --
 data BlockedFetch r = forall a. BlockedFetch (r a) (ResultVar a)
 
--- | Function for easily setting a fetch to a particular exception
-setError :: (Exception e) => (forall a. r a -> e) -> BlockedFetch r -> IO ()
-setError e (BlockedFetch req m) = putFailure m (e req)
 
-except :: (Exception e) => e -> Either SomeException a
-except = Left . toException
+-- -----------------------------------------------------------------------------
+-- ResultVar
 
 -- | A sink for the result of a data fetch in 'BlockedFetch'
-newtype ResultVar a = ResultVar (MVar (Either SomeException a))
+newtype ResultVar a = ResultVar (Either SomeException a -> IO ())
 
--- Why do we need an 'MVar' here?  The reason is that the
--- cache serves two purposes:
---
---  1. To cache the results of requests that were submitted in a previous round.
---
---  2. To remember requests that have been encountered in the current round but
---     are not yet submitted, so that if we see the request again we can make
---     sure that we only submit it once.
---
--- Storing the result as an 'MVar' gives two benefits:
---
---   * We can tell the difference between (1) and (2) by testing whether the
---     'MVar' is empty. See 'Haxl.Fetch.cached'.
---
---   * In the case of (2), we don't have to update the cache again after the
---     current round, and after the round we can read the result of each request
---     from its 'MVar'. All instances of identical requests will share the same
---     'MVar' to obtain the result.
-
-newResult :: a -> IO (ResultVar a)
-newResult x = ResultVar <$> newMVar (Right x)
-
-newEmptyResult :: IO (ResultVar a)
-newEmptyResult = ResultVar <$> newEmptyMVar
+mkResultVar :: (Either SomeException a -> IO ()) -> ResultVar a
+mkResultVar = ResultVar
 
 putFailure :: (Exception e) => ResultVar a -> e -> IO ()
 putFailure r = putResult r . except
@@ -454,23 +424,23 @@ putSuccess :: ResultVar a -> a -> IO ()
 putSuccess r = putResult r . Right
 
 putResult :: ResultVar a -> Either SomeException a -> IO ()
-putResult (ResultVar var) = putMVar var
+putResult (ResultVar io) res =  io res
 
-takeResult :: ResultVar a -> IO (Either SomeException a)
-takeResult (ResultVar var) = takeMVar var
+-- | Function for easily setting a fetch to a particular exception
+setError :: (Exception e) => (forall a. r a -> e) -> BlockedFetch r -> IO ()
+setError e (BlockedFetch req m) = putFailure m (e req)
 
-tryReadResult :: ResultVar a -> IO (Maybe (Either SomeException a))
-tryReadResult (ResultVar var) = tryReadMVar var
+except :: (Exception e) => e -> Either SomeException a
+except = Left . toException
 
-tryTakeResult :: ResultVar a -> IO (Maybe (Either SomeException a))
-tryTakeResult (ResultVar var) = tryTakeMVar var
 
+-- -----------------------------------------------------------------------------
 -- Fetch templates
 
 stubFetch
   :: (Exception e) => (forall a. r a -> e)
-  -> State r -> Flags -> u -> [BlockedFetch r] -> PerformFetch
-stubFetch e _state _flags _si bfs = SyncFetch $ mapM_ (setError e) bfs
+  -> State r -> Flags -> u -> PerformFetch r
+stubFetch e _state _flags _si = SyncFetch $ mapM_ (setError e)
 
 -- | Common implementation templates for 'fetch' of 'DataSource'.
 --
@@ -503,10 +473,7 @@ asyncFetchWithDispatch
   -> u
   -- ^ Currently unused.
 
-  -> [BlockedFetch request]
-  -- ^ Requests to submit.
-
-  -> PerformFetch
+  -> PerformFetch request
 
 asyncFetch, syncFetch
   :: ((service -> IO ()) -> IO ())
@@ -527,29 +494,26 @@ asyncFetch, syncFetch
   -> u
   -- ^ Currently unused.
 
-  -> [BlockedFetch request]
-  -- ^ Requests to submit.
-
-  -> PerformFetch
+  -> PerformFetch request
 
 asyncFetchWithDispatch
-  withService dispatch wait enqueue _state _flags _si requests =
-  AsyncFetch $ \inner -> withService $ \service -> do
+  withService dispatch wait enqueue _state _flags _si =
+  AsyncFetch $ \requests inner -> withService $ \service -> do
     getResults <- mapM (submitFetch service enqueue) requests
     dispatch service
     inner
     wait service
     sequence_ getResults
 
-asyncFetch withService wait enqueue _state _flags _si requests =
-  AsyncFetch $ \inner -> withService $ \service -> do
+asyncFetch withService wait enqueue _state _flags _si =
+  AsyncFetch $ \requests inner -> withService $ \service -> do
     getResults <- mapM (submitFetch service enqueue) requests
     inner
     wait service
     sequence_ getResults
 
-syncFetch withService dispatch enqueue _state _flags _si requests =
-  SyncFetch . withService $ \service -> do
+syncFetch withService dispatch enqueue _state _flags _si =
+  SyncFetch $ \requests -> withService $ \service -> do
   getResults <- mapM (submitFetch service enqueue) requests
   dispatch service
   sequence_ getResults
@@ -566,7 +530,7 @@ the same round.
 'asyncFetchAcquireRelease' behaves like the following:
 
 > asyncFetchAcquireRelease acquire release dispatch wait enqueue =
->   AsyncFetch $ \inner ->
+>   AsyncFetch $ \requests inner ->
 >     bracket acquire release $ \service -> do
 >       getResults <- mapM (submitFetch service enqueue) requests
 >       dispatch service
@@ -603,14 +567,11 @@ asyncFetchAcquireRelease
   -> u
   -- ^ Currently unused.
 
-  -> [BlockedFetch request]
-  -- ^ Requests to submit.
-
-  -> PerformFetch
+  -> PerformFetch request
 
 asyncFetchAcquireRelease
-  acquire release dispatch wait enqueue _state _flags _si requests =
-  AsyncFetch $ \inner -> mask $ \restore -> do
+  acquire release dispatch wait enqueue _state _flags _si =
+  AsyncFetch $ \requests inner -> mask $ \restore -> do
     r1 <- tryWithRethrow acquire
     case r1 of
       Left err -> do restore inner; throwIO (err :: SomeException)

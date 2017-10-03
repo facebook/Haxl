@@ -12,17 +12,29 @@ import Test.HUnit
 
 import Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.List
 
 import Control.Exception (Exception(..))
+
+import ExampleDataSource
+
+testEnv = do
+  -- To use a data source, we need to initialize its state:
+  exstate <- ExampleDataSource.initGlobalState
+
+  -- And create a StateStore object containing the states we need:
+  let st = stateSet exstate stateEmpty
+
+  -- Create the Env:
+  initEnv st ()
 
 useless :: String -> GenHaxl u Bool
 useless _ = throw (NotFound "ha ha")
 
-en = error "no env"
-
 exceptions :: Assertion
 exceptions =
   do
+    en <- emptyEnv ()
     a <- runHaxl en $ try (useless "input")
     assertBool "NotFound -> HaxlException" $
       isLeft (a :: Either HaxlException Bool)
@@ -72,6 +84,38 @@ exceptions =
               return True)
             `catch` \InternalError{} -> return False
     assertBool "catchIf2" (not e)
+
+    -- test tryToHaxlException
+    e <- runHaxl en $ tryToHaxlException $ head []
+    assertBool "tryToHaxlException1" $
+      case e of
+        Left ex | Just NonHaxlException{} <- fromException (toException ex)
+          -> True
+        _ -> False
+
+    env <- testEnv
+    e <- runHaxl env $ tryToHaxlException $ do
+      xs <- listWombats 3
+      return $! length xs `quot` 0
+    print e
+    assertBool "tryToHaxlException1" $
+      case e of
+        Left ex | Just NonHaxlException{} <- fromException (toException ex)
+          -> True
+        _ -> False
+
+    env <- testEnv
+    e <- runHaxl env $ mapM tryToHaxlException
+      [ do xs <- listWombats 3; return $! length xs `quot` 0
+      , head []
+      ]
+    print e
+    assertBool "tryToHaxlException2" $
+      case e of
+        [Left ex1, Left ex2]
+           | "divide" `isInfixOf` show ex1
+           , "head" `isInfixOf` show ex2 -> True
+        _ -> False
   where
   isLeft Left{} = True
   isLeft _ = False
@@ -80,7 +124,9 @@ exceptions =
 -- This is mostly a compile test, to make sure all the plumbing
 -- makes the compiler happy.
 base :: (Exception a) => a -> IO HaxlException
-base e = runHaxl en $ throw e `catch` \x -> return x
+base e = do
+  en <- emptyEnv ()
+  runHaxl en $ throw e `catch` \x -> return x
 
 printing :: Assertion
 printing = do
@@ -98,7 +144,27 @@ printing = do
   BS.putStrLn $ encode c
 
 
+withEnvTest :: Test
+withEnvTest = TestLabel "withEnvTest" $ TestCase $ do
+  exstate <- ExampleDataSource.initGlobalState
+  e <- initEnv (stateSet exstate stateEmpty) False
+  b <- runHaxl e $ withEnv e { userEnv = True } $ env userEnv
+  assertBool "withEnv1" b
+  e <- initEnv (stateSet exstate stateEmpty) False
+  b <- runHaxl e $ withEnv e { userEnv = True } $ do
+    _ <- countAardvarks "aaa"
+    env userEnv
+  assertBool "withEnv2" b
+  e <- initEnv (stateSet exstate stateEmpty) False
+  b <- runHaxl e $ withEnv e { userEnv = True } $ do
+    memo ("xxx" :: Text) $ do
+      _ <- countAardvarks "aaa"
+      env userEnv
+  assertBool "withEnv3" b
+
+
 tests = TestList
   [ TestLabel "exceptions" $ TestCase exceptions,
-    TestLabel "print_stuff" $ TestCase printing
+    TestLabel "print_stuff" $ TestCase printing,
+    TestLabel "withEnv" $ withEnvTest
   ]

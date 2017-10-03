@@ -8,6 +8,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | A cache mapping data requests to their results.  This module is
@@ -24,6 +25,7 @@ module Haxl.Core.DataCache
   , showCache
   ) where
 
+import Control.Exception
 import Data.Hashable
 import Prelude hiding (lookup)
 import Unsafe.Coerce
@@ -33,7 +35,6 @@ import Data.Maybe
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative ((<$>))
 #endif
-import Control.Exception
 
 import Haxl.Core.Types
 
@@ -109,20 +110,22 @@ lookup req (DataCache m) =
 -- 'insertNotShowable' has been used to insert any entries.
 --
 showCache
-  :: DataCache ResultVar
+  :: forall res
+  .  DataCache res
+  -> (forall a . res a -> IO (Maybe (Either SomeException a)))
   -> IO [(TypeRep, [(String, Either SomeException String)])]
 
-showCache (DataCache cache) = mapM goSubCache (HashMap.toList cache)
+showCache (DataCache cache) readRes = mapM goSubCache (HashMap.toList cache)
  where
   goSubCache
-    :: (TypeRep,SubCache ResultVar)
+    :: (TypeRep, SubCache res)
     -> IO (TypeRep,[(String, Either SomeException String)])
   goSubCache (ty, SubCache showReq showRes hmap) = do
     elems <- catMaybes <$> mapM go (HashMap.toList hmap)
     return (ty, elems)
    where
     go  (req, rvar) = do
-      maybe_r <- tryReadResult rvar
+      maybe_r <- readRes rvar
       case maybe_r of
         Nothing -> return Nothing
         Just (Left e) -> return (Just (showReq req, Left e))

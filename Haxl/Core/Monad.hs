@@ -5,6 +5,17 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
+{- TODO
+
+- do EVENTLOG stuff, track the data fetch numbers for performFetch
+
+- timing: we should be using clock_gettime(CLOCK_MONOTONIC) instead of
+  getCurrentTime, which will be affected by NTP and leap seconds.
+
+- write different scheduling policies
+
+-}
+
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -17,8 +28,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 #if __GLASGOW_HASKELL >= 800
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 #else
@@ -31,6 +44,9 @@ module Haxl.Core.Monad (
     -- * The monad
     GenHaxl (..), runHaxl,
     env, withEnv, withLabel, withFingerprintLabel,
+
+    -- * IVar
+    IVar(..), IVarContents(..), ResultVal(..),
 
     -- * Env
     Env(..), Caches, caches, initEnvWithData, initEnv, emptyEnv,
@@ -60,13 +76,17 @@ import Haxl.Core.Types
 import Haxl.Core.ShowP
 import Haxl.Core.StateStore
 import Haxl.Core.Exception
-import Haxl.Core.RequestStore
+import Haxl.Core.RequestStore as RequestStore
 import Haxl.Core.Util
 import Haxl.Core.DataCache as DataCache
 
+import Control.Arrow (left)
+import Control.Concurrent.STM
+import Data.Int (Int64)
+import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Control.Monad.Catch as Catch
-import Control.Exception (Exception(..), SomeException)
+import Control.Exception (Exception(..), SomeException, throwIO)
 #if __GLASGOW_HASKELL__ >= 710
 import GHC.Conc (getAllocationCounter, setAllocationCounter)
 #endif
@@ -75,25 +95,20 @@ import qualified Control.Exception as Exception
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative hiding (Const)
 #endif
-import Control.DeepSeq
 import GHC.Exts (IsString(..), Addr#)
 #if __GLASGOW_HASKELL__ < 706
 import Prelude hiding (catch)
 #endif
-import Data.Functor.Constant
+import Data.Either
 import Data.Hashable
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import Data.IORef
 import Data.List
-import qualified Data.Map as Map
 import Data.Monoid
-import Data.Time
 import Data.Typeable
-import Text.Printf
 import Text.PrettyPrint hiding ((<>))
-import Control.Arrow (left)
-
+import Text.Printf
 #ifdef EVENTLOG
 import Control.Exception (bracket_)
 import Debug.Trace (traceEventIO)
@@ -102,6 +117,8 @@ import Debug.Trace (traceEventIO)
 #ifdef PROFILING
 import GHC.Stack
 #endif
+
+import Unsafe.Coerce
 
 #if __GLASGOW_HASKELL__ < 710
 import Data.Int (Int64)
@@ -113,28 +130,67 @@ setAllocationCounter :: Int64 -> IO ()
 setAllocationCounter _ = return ()
 #endif
 
+
+trace_ :: String -> a -> a
+trace_ _ = id
+--trace_ = Debug.Trace.trace
+
 -- -----------------------------------------------------------------------------
 -- The environment
 
 -- | The data we carry around in the Haxl monad.
 data Env u = Env
-  { cacheRef     :: {-# UNPACK #-} !(IORef (DataCache ResultVar))
-                     -- cached data fetches
-  , memoRef      :: {-# UNPACK #-} !(IORef (DataCache (MemoVar u)))
-                     -- memoized computations
+  { cacheRef     :: {-# UNPACK #-} !(IORef (DataCache (IVar u)))
+      -- ^ cached data fetches
+
+  , memoRef      :: {-# UNPACK #-} !(IORef (DataCache (IVar u)))
+      -- ^ memoized computations
+
   , flags        :: !Flags
-                     -- conservatively not unpacking, because this is passed
-                     -- to 'fetch' and would need to be rebuilt.
+      -- conservatively not unpacking, because this is passed
+      -- to 'fetch' and would need to be rebuilt.
+
   , userEnv      :: u
+      -- ^ user-supplied data, retrievable with 'env'
+
   , statsRef     :: {-# UNPACK #-} !(IORef Stats)
+      -- ^ statistics, collected according to the 'report' level in 'flags'.
+
   , profLabel    :: ProfileLabel
+      -- ^ current profiling label, see 'withLabel'
+
   , profRef      :: {-# UNPACK #-} !(IORef Profile)
+      -- ^ profiling data, collected according to the 'report' level in 'flags'.
+
   , states       :: StateStore
-  -- ^ Data sources and other components can store their state in
-  -- here. Items in this store must be instances of 'StateKey'.
+      -- ^ Data sources and other components can store their state in
+      -- here. Items in this store must be instances of 'StateKey'.
+
+  , reqStoreRef :: {-# UNPACK #-} !(IORef (RequestStore u))
+       -- ^ The set of requests that we have not submitted to data sources yet.
+       -- Owned by the scheduler.
+
+  , runQueueRef :: {-# UNPACK #-} !(IORef (JobList u))
+       -- ^ runnable computations. Things get added to here when we wake up
+       -- a computation that was waiting for something.  When the list is
+       -- empty, either we're finished, or we're waiting for some data fetch
+       -- to return.
+
+  , completions :: {-# UNPACK #-} !(TVar [CompleteReq u])
+       -- ^ Requests that have completed.  Modified by data sources
+       -- (via putResult) and the scheduler.  Waiting for this list to
+       -- become non-empty is how the scheduler blocks waiting for
+       -- data fetches to return.
+
+  , pendingWaits :: [IO ()]
+       -- ^ this is a list of IO actions returned by 'FutureFetch'
+       -- data sources.  These do a blocking wait for the results of
+       -- some data fetch.
+
+  , speculative :: {-# UNPACK #-} !Int
   }
 
-type Caches u = (IORef (DataCache ResultVar), IORef (DataCache (MemoVar u)))
+type Caches u = (IORef (DataCache (IVar u)), IORef (DataCache (IVar u)))
 
 caches :: Env u -> Caches u
 caches env = (cacheRef env, memoRef env)
@@ -145,6 +201,9 @@ initEnvWithData :: StateStore -> u -> Caches u -> IO (Env u)
 initEnvWithData states e (cref, mref) = do
   sref <- newIORef emptyStats
   pref <- newIORef emptyProfile
+  rs <- newIORef noRequests          -- RequestStore
+  rq <- newIORef JobNil
+  comps <- newTVarIO []              -- completion queue
   return Env
     { cacheRef = cref
     , memoRef = mref
@@ -154,6 +213,11 @@ initEnvWithData states e (cref, mref) = do
     , statsRef = sref
     , profLabel = "MAIN"
     , profRef = pref
+    , reqStoreRef = rs
+    , runQueueRef = rq
+    , completions = comps
+    , pendingWaits = []
+    , speculative = 0
     }
 
 -- | Initializes an environment with 'StateStore' and an input map.
@@ -167,11 +231,13 @@ initEnv states e = do
 emptyEnv :: u -> IO (Env u)
 emptyEnv = initEnv stateEmpty
 
+
 -- -----------------------------------------------------------------------------
 -- | The Haxl monad, which does several things:
 --
---  * It is a reader monad for 'Env' and 'IORef' 'RequestStore', The
---    latter is the current batch of unsubmitted data fetch requests.
+--  * It is a reader monad for 'Env', which contains the current state
+--    of the scheduler, including unfetched requests and the run queue
+--    of computations.
 --
 --  * It is a concurrency, or resumption, monad. A computation may run
 --    partially and return 'Blocked', in which case the framework should
@@ -185,7 +251,150 @@ emptyEnv = initEnv stateEmpty
 --  * It contains IO, so that we can perform real data fetching.
 --
 newtype GenHaxl u a = GenHaxl
-  { unHaxl :: Env u -> IORef (RequestStore u) -> IO (Result u a) }
+  { unHaxl :: Env u -> IO (Result u a) }
+
+
+-- -----------------------------------------------------------------------------
+-- JobList
+
+-- | A list of computations together with the IVar into which they
+-- should put their result.
+--
+-- This could be an ordinary list, but the optimised representation
+-- saves space and time.
+--
+data JobList u
+ = JobNil
+ | forall a . JobCons
+     (IO (Result u a))          -- See Note [make withEnv work] below.
+     {-# UNPACK #-} !(IVar u a)
+     (JobList u)
+
+-- Note [make withEnv work]
+--
+-- The withEnv operation supplies a new Env for the scope of a GenHaxl
+-- computation.  The problem is that the computation might be split
+-- into pieces and put onto various JobLists, so we have to be sure to
+-- use the correct Env when we execute the pieces. Therefore when
+-- putting a continuation onto a JobList we apply it to the Env first,
+-- which is why the JobList contains (IO (Result u a)) rather than
+-- (GenHaxl u a).
+
+appendJobList :: JobList u -> JobList u -> JobList u
+appendJobList JobNil c = c
+appendJobList c JobNil = c
+appendJobList (JobCons a b c) d = JobCons a b (appendJobList c d)
+
+lengthJobList :: JobList u -> Int
+lengthJobList JobNil = 0
+lengthJobList (JobCons _ _ j) = 1 + lengthJobList j
+
+
+-- -----------------------------------------------------------------------------
+-- IVar
+
+-- | A synchronisation point.  It either contains a value, or a list
+-- of computations waiting for the value.
+newtype IVar u a = IVar (IORef (IVarContents u a))
+
+data IVarContents u a
+  = IVarFull (ResultVal a)
+  | IVarEmpty (JobList u)
+    -- morally this is a list of @a -> GenHaxl u ()@, but instead of
+    -- using a function, each computation begins with `getIVar` to grab
+    -- the value it is waiting for.  This is less type safe but a little
+    -- faster (benchmarked with tests/MonadBench.hs).
+
+newIVar :: IO (IVar u a)
+newIVar = IVar <$> newIORef (IVarEmpty JobNil)
+
+newFullIVar :: ResultVal a -> IO (IVar u a)
+newFullIVar r = IVar <$> newIORef (IVarFull r)
+
+getIVar :: IVar u a -> GenHaxl u a
+getIVar (IVar !ref) = GenHaxl $ \_env -> do
+  e <- readIORef ref
+  case e of
+    IVarFull (Ok a) -> return (Done a)
+    IVarFull (ThrowHaxl e) -> return (Throw e)
+    IVarFull (ThrowIO e) -> throwIO e
+    IVarEmpty _ -> return (Blocked (IVar ref) (Cont (getIVar (IVar ref))))
+
+-- Just a specialised version of getIVar, for efficiency in <*>
+getIVarApply :: IVar u (a -> b) -> a -> GenHaxl u b
+getIVarApply (IVar !ref) a = GenHaxl $ \_env -> do
+  e <- readIORef ref
+  case e of
+    IVarFull (Ok f) -> return (Done (f a))
+    IVarFull (ThrowHaxl e) -> return (Throw e)
+    IVarFull (ThrowIO e) -> throwIO e
+    IVarEmpty _ ->
+      return (Blocked (IVar ref) (Cont (getIVarApply (IVar ref) a)))
+
+putIVar :: IVar u a -> ResultVal a -> Env u -> IO ()
+putIVar (IVar ref) a Env{..} = do
+  e <- readIORef ref
+  case e of
+    IVarEmpty jobs -> do
+      writeIORef ref (IVarFull a)
+      modifyIORef' runQueueRef (appendJobList jobs)
+    IVarFull{} -> error "putIVar: multiple put"
+
+{-# INLINE addJob #-}
+addJob :: IO (Result u b) -> IVar u b -> IVar u a -> IO ()
+addJob !haxl !resultIVar (IVar !ref) =
+  modifyIORef' ref $ \contents ->
+    case contents of
+      IVarEmpty list -> IVarEmpty ((JobCons haxl) resultIVar list)
+      _ -> addJobPanic
+
+addJobPanic :: forall a . a
+addJobPanic = error "addJob: not empty"
+
+
+-- -----------------------------------------------------------------------------
+-- ResultVal
+
+-- | The contents of a full IVar.  We have to distinguish exceptions
+-- thrown in the IO monad from exceptions thrown in the Haxl monad, so
+-- that when the result is fetched using getIVar, we can throw the
+-- exception in the right way.
+data ResultVal a
+  = Ok a
+  | ThrowHaxl SomeException
+  | ThrowIO SomeException
+
+done :: ResultVal a -> IO (Result u a)
+done (Ok a) = return (Done a)
+done (ThrowHaxl e) = return (Throw e)
+done (ThrowIO e) = throwIO e
+
+eitherToResultThrowIO :: Either SomeException a -> ResultVal a
+eitherToResultThrowIO (Right a) = Ok a
+eitherToResultThrowIO (Left e)
+  | Just HaxlException{} <- fromException e = ThrowHaxl e
+  | otherwise = ThrowIO e
+
+eitherToResult :: Either SomeException a -> ResultVal a
+eitherToResult (Right a) = Ok a
+eitherToResult (Left e) = ThrowHaxl e
+
+
+-- -----------------------------------------------------------------------------
+-- CompleteReq
+
+-- | A completed request from a data source, containing the result,
+-- and the 'IVar' representing the blocked computations.  The job of a
+-- data source is just to add these to a queue ('completions') using
+-- 'putResult'; the scheduler collects them from the queue and unblocks
+-- the relevant computations.
+data CompleteReq u =
+  forall a . CompleteReq (Either SomeException a)
+                         !(IVar u a)  -- IVar because the result is cached
+
+
+-- -----------------------------------------------------------------------------
+-- Result
 
 -- | The result of a computation is either 'Done' with a value, 'Throw'
 -- with an exception, or 'Blocked' on the result of a data fetch with
@@ -193,173 +402,402 @@ newtype GenHaxl u a = GenHaxl
 data Result u a
   = Done a
   | Throw SomeException
-  | Blocked (Cont u a)
-
-data Cont u a
-  = Cont (GenHaxl u a)
-  | forall b. Cont u b :>>= (b -> GenHaxl u a)
-  | forall b. (Cont u (b -> a)) :<*> (Cont u b)
-  | forall b. (b -> a) :<$> (Cont u b)
-
-toHaxl :: Cont u a -> GenHaxl u a
-toHaxl (Cont haxl)           = haxl
-toHaxl ((m :>>= k1) :>>= k2) = toHaxl (m :>>= (k1 >=> k2)) -- for seql
-toHaxl (c :>>= k)            = toHaxl c >>= k
-toHaxl ((f :<$> i) :<*> (g :<$> j)) =
-  toHaxl (((\x y -> f x (g y)) :<$> i) :<*> j)          -- See Note [Tree]
-toHaxl (f :<*> x)            = toHaxl f <*> toHaxl x
-toHaxl (f :<$> (g :<$> x))   = toHaxl ((f . g) :<$> x)  -- fmap fusion
-toHaxl (f :<$> x)            = fmap f (toHaxl x)
-
--- Note [Tree]
--- This implements the following re-association:
---
---           <*>
---          /   \
---       <$>     <$>
---      /   \   /   \
---     f     i g     j
---
--- to:
---
---           <*>
---          /   \
---       <$>     j
---      /   \         where h = (\x y -> f x (g y))
---     h     i
---
--- I suspect this is mostly useful because it eliminates one :<$> constructor
--- within the Blocked returned by `tree 1`, which is replicated a lot by the
--- tree benchmark (tree 1 is near the leaves). So this rule might just be
--- optimizing for a microbenchmark.
+  | forall b . Blocked
+      {-# UNPACK #-} !(IVar u b)
+      (Cont u a)
+         -- ^ The 'IVar' is what we are blocked on; 'Cont' is the
+         -- continuation.  This might be wrapped further if we're
+         -- nested inside multiple '>>=', before finally being added
+         -- to the 'IVar'.  Morally @b -> GenHaxl u a@, but see
+         -- 'IVar',
 
 instance (Show a) => Show (Result u a) where
   show (Done a) = printf "Done(%s)" $ show a
   show (Throw e) = printf "Throw(%s)" $ show e
   show Blocked{} = "Blocked"
 
+{- Note [Exception]
+
+How do we want to represent Haxl exceptions (those that are thrown by
+"throw" in the Haxl monad)?
+
+1) Explicitly via a Throw constructor in the Result type
+2) Using throwIO in the IO monad
+
+If we did (2), we would have to use an exception handler in <*>,
+because an exception in the right-hand argument of <*> should not
+necessarily be thrown by the whole computation - an exception on the
+left should get priority, and the left might currently be Blocked.
+
+We must be careful about turning IO monad exceptions into Haxl
+exceptions.  An IO monad exception will normally propagate right
+out of runHaxl and terminate the whole computation, whereas a Haxl
+exception can get dropped on the floor, if it is on the right of
+<*> and the left side also throws, for example.  So turning an IO
+monad exception into a Haxl exception is a dangerous thing to do.
+In particular, we never want to do it for an asynchronous exception
+(AllocationLimitExceeded, ThreadKilled, etc.), because these are
+supposed to unconditionally terminate the computation.
+
+There are three places where we take an arbitrary IO monad exception and
+turn it into a Haxl exception:
+
+ * wrapFetchInCatch.  Here we want to propagate a failure of the
+   data source to the callers of the data source, but if the
+   failure came from elsewhere (an asynchronous exception), then we
+   should just propagate it
+
+ * cacheResult (cache the results of IO operations): again,
+   failures of the IO operation should be visible to the caller as
+   a Haxl exception, but we exclude asynchronous exceptions from
+   this.
+
+ * unsafeToHaxlException: assume the caller knows what they're
+   doing, and just wrap all exceptions.
+-}
+
+
+-- -----------------------------------------------------------------------------
+-- Cont
+
+-- | A data representation of a Haxl continuation.  This is to avoid
+-- repeatedly traversing a left-biased tree in a continuation, leading
+-- O(n^2) complexity for some pathalogical cases - see the "seql" benchmark
+-- in tests/MonadBench.hs.
+-- See "A Smart View on Datatypes", Jaskelioff/Rivas, ICFP'15
+data Cont u a
+  = Cont (GenHaxl u a)
+  | forall b. Cont u b :>>= (b -> GenHaxl u a)
+  | forall b. (b -> a) :<$> (Cont u b)
+
+toHaxl :: Cont u a -> GenHaxl u a
+toHaxl (Cont haxl) = haxl
+toHaxl (m :>>= k) = toHaxlBind m k
+toHaxl (f :<$> x) = toHaxlFmap f x
+
+toHaxlBind :: Cont u b -> (b -> GenHaxl u a) -> GenHaxl u a
+toHaxlBind (m :>>= k) k2 = toHaxlBind m (k >=> k2)
+toHaxlBind (Cont haxl) k = haxl >>= k
+toHaxlBind (f :<$> x) k = toHaxlBind x (k . f)
+
+toHaxlFmap :: (a -> b) -> Cont u a -> GenHaxl u b
+toHaxlFmap f (m :>>= k) = toHaxlBind m (k >=> return . f)
+toHaxlFmap f (Cont haxl) = f <$> haxl
+toHaxlFmap f (g :<$> x) = toHaxlFmap (f . g) x
+
+-- -----------------------------------------------------------------------------
+-- Monad/Applicative instances
+
 instance Monad (GenHaxl u) where
-  return a = GenHaxl $ \_env _ref -> return (Done a)
-  GenHaxl m >>= k = GenHaxl $ \env ref -> do
-    e <- m env ref
+  return a = GenHaxl $ \_env -> return (Done a)
+  GenHaxl m >>= k = GenHaxl $ \env -> do
+    e <- m env
     case e of
-      Done a       -> unHaxl (k a) env ref
-      Throw e      -> return (Throw e)
-      Blocked cont -> return (Blocked (cont :>>= k))
-  fail msg = GenHaxl $ \_env _ref ->
+      Done a -> unHaxl (k a) env
+      Throw e -> return (Throw e)
+      Blocked ivar cont -> trace_ ">>= Blocked" $
+        return (Blocked ivar (cont :>>= k))
+  fail msg = GenHaxl $ \_env ->
     return $ Throw $ toException $ MonadFail $ Text.pack msg
 
   -- We really want the Applicative version of >>
   (>>) = (*>)
 
 instance Functor (GenHaxl u) where
-  fmap f (GenHaxl m) = GenHaxl $ \env ref -> do
-    r <- m env ref
+  fmap f (GenHaxl m) = GenHaxl $ \env -> do
+    r <- m env
     case r of
       Done a -> return (Done (f a))
       Throw e -> return (Throw e)
-      Blocked a' -> return (Blocked (f :<$> a'))
+      Blocked ivar cont -> trace_ "fmap Blocked" $
+        return (Blocked ivar (f :<$> cont))
 
 instance Applicative (GenHaxl u) where
   pure = return
-  GenHaxl f <*> GenHaxl a = GenHaxl $ \env ref -> do
-    r <- f env ref
-    case r of
-      Throw e -> return (Throw e)
-      Done f' -> do
-        ra <- a env ref
+  GenHaxl ff <*> GenHaxl aa = GenHaxl $ \env -> do
+    rf <- ff env
+    case rf of
+      Done f -> do
+        ra <- aa env
         case ra of
-          Done a'    -> return (Done (f' a'))
-          Throw e    -> return (Throw e)
-          Blocked a' -> return (Blocked (f' :<$> a'))
-      Blocked f' -> do
-        ra <- a env ref  -- left is blocked, explore the right
-        case ra of
-          Done a'    -> return (Blocked (($ a') :<$> f'))
-          Throw e    -> return (Blocked (f' :<*> Cont (throw e)))
-          Blocked a' -> return (Blocked (f' :<*> a'))
+          Done a -> trace_ "Done/Done" $ return (Done (f a))
+          Throw e -> trace_ "Done/Throw" $ return (Throw e)
+          Blocked ivar fcont -> trace_ "Done/Blocked" $
+            return (Blocked ivar (f :<$> fcont))
+      Throw e -> trace_ "Throw" $ return (Throw e)
+      Blocked ivar1 fcont -> do
+         ra <- aa env
+         case ra of
+           Done a -> trace_ "Blocked/Done" $
+             return (Blocked ivar1 (($ a) :<$> fcont))
+           Throw e -> trace_ "Blocked/Throw" $
+             return (Blocked ivar1 (fcont :>>= (\_ -> throw e)))
+           Blocked ivar2 acont -> trace_ "Blocked/Blocked" $ do
+             -- Note [Blocked/Blocked]
+              if speculative env /= 0
+                then
+                  return (Blocked ivar1
+                            (Cont (toHaxl fcont <*> toHaxl acont)))
+                else do
+                  i <- newIVar
+                  addJob (unHaxl (toHaxl fcont) env) i ivar1
+                  let cont = acont :>>= \a -> getIVarApply i a
+                  return (Blocked ivar2 cont)
 
--- | Runs a 'Haxl' computation in an 'Env'.
-runHaxl :: Env u -> GenHaxl u a -> IO a
-#ifdef EVENTLOG
-runHaxl env h = do
-  let go !n env c = do
-        traceEventIO "START computation"
-        ref <- newIORef noRequests
-        e <- (unHaxl $ toHaxl c) env ref
-        traceEventIO "STOP computation"
-        case e of
-          Done a       -> return a
-          Throw e      -> Exception.throw e
-          Blocked cont -> do
-            bs <- readIORef ref
-            writeIORef ref noRequests -- Note [RoundId]
-            traceEventIO "START performFetches"
-            n' <- performFetches n env bs
-            traceEventIO "STOP performFetches"
-            when (caching (flags env) == 0) $
-              writeIORef (cacheRef env) emptyDataCache
-            go n' env cont
-  traceEventIO "START runHaxl"
-  r <- go 0 env (Cont h)
-  traceEventIO "STOP runHaxl"
-  return r
-#else
-runHaxl env (GenHaxl haxl) = do
-  ref <- newIORef noRequests
-  e <- haxl env ref
-  case e of
-    Done a       -> return a
-    Throw e      -> Exception.throw e
-    Blocked cont -> do
-      bs <- readIORef ref
-      writeIORef ref noRequests -- Note [RoundId]
-      void (performFetches 0 env bs)
-      when (caching (flags env) == 0) $
-        writeIORef (cacheRef env) emptyDataCache
-      runHaxl env (toHaxl cont)
-#endif
+-- Note [Blocked/Blocked]
+--
+-- This is the tricky case: we're blocked on both sides of the <*>.
+-- We need to divide the computation into two pieces that may continue
+-- independently when the resources they are blocked on become
+-- available.  Moreover, the computation as a whole depends on the two
+-- pieces.  It works like this:
+--
+--   ff <*> aa
+--
+-- becomes
+--
+--   (ff >>= putIVar i) <*> (a <- aa; f <- getIVar i; return (f a)
+--
+-- where the IVar i is a new synchronisation point.  If the right side
+-- gets to the `getIVar` first, it will block until the left side has
+-- called 'putIVar'.
+--
+-- We can also do it the other way around:
+--
+--   (do ff <- f; getIVar i; return (ff a)) <*> (a >>= putIVar i)
+--
+-- The first was slightly faster according to tests/MonadBench.hs.
+
+
+-- -----------------------------------------------------------------------------
+-- runHaxl
+
+-- | Runs a 'Haxl' computation in the given 'Env'.
+runHaxl :: forall u a. Env u -> GenHaxl u a -> IO a
+runHaxl env@Env{..} haxl = do
+
+  result@(IVar resultRef) <- newIVar -- where to put the final result
+  let
+    -- Run a job, and put its result in the given IVar
+    schedule :: Env u -> JobList u -> IO (Result u b) -> IVar u b -> IO ()
+    schedule env@Env{..} rq run (IVar !ref) = do
+      ifTrace flags 3 $ printf "schedule: %d\n" (1 + lengthJobList rq)
+      let {-# INLINE result #-}
+          result r = do
+            e <- readIORef ref
+            case e of
+              IVarFull _ -> error "multiple put"
+              IVarEmpty haxls -> do
+                writeIORef ref (IVarFull r)
+                -- Have we got the final result now?
+                if ref == unsafeCoerce resultRef
+                        -- comparing IORefs of different types is safe, it's
+                        -- pointer-equality on the MutVar#.
+                   then
+                     -- We have a result, but don't discard unfinished
+                     -- computations in the run queue. See
+                     -- Note [runHaxl and unfinished requests].
+                     -- Nothing can depend on the final IVar, so haxls must
+                     -- be empty.
+                     case rq of
+                       JobNil -> return ()
+                       _ -> modifyIORef' runQueueRef (appendJobList rq)
+                   else reschedule env (appendJobList haxls rq)
+      r <- Exception.try run
+      case r of
+        Left e -> do
+          rethrowAsyncExceptions e
+          result (ThrowIO e)
+        Right (Done a) -> result (Ok a)
+        Right (Throw ex) -> result (ThrowHaxl ex)
+        Right (Blocked ivar fn) -> do
+          addJob (unHaxl (toHaxl fn) env) (IVar ref) ivar
+          reschedule env rq
+
+    -- Here we have a choice:
+    --   - If the requestStore is non-empty, we could submit those
+    --     requests right away without waiting for more.  This might
+    --     be good for latency, especially if the data source doesn't
+    --     support batching, or if batching is pessmial.
+    --   - To optimise the batch sizes, we want to execute as much as
+    --     we can and only submit requests when we have no more
+    --     computation to do.
+    --   - compromise: wait at least Nms for an outstanding result
+    --     before giving up and submitting new requests.
+    --
+    -- For now we use the batching strategy in the scheduler, but
+    -- individual data sources can request that their requests are
+    -- sent eagerly by using schedulerHint.
+    --
+    reschedule :: Env u -> JobList u -> IO ()
+    reschedule env@Env{..} haxls = do
+      case haxls of
+        JobNil -> do
+          rq <- readIORef runQueueRef
+          case rq of
+            JobNil -> emptyRunQueue env
+            JobCons a b c -> do
+              writeIORef runQueueRef JobNil
+              schedule env c a b
+        JobCons a b c ->
+          schedule env c a b
+
+    emptyRunQueue :: Env u -> IO ()
+    emptyRunQueue env@Env{..} = do
+      ifTrace flags 3 $ printf "emptyRunQueue\n"
+      haxls <- checkCompletions env
+      case haxls of
+        JobNil -> do
+          case pendingWaits of
+            [] -> checkRequestStore env
+            wait:waits -> do
+              ifTrace flags 3 $ printf "invoking wait\n"
+              wait
+              emptyRunQueue env { pendingWaits = waits } -- check completions
+        _ -> reschedule env haxls
+
+    checkRequestStore :: Env u -> IO ()
+    checkRequestStore env@Env{..} = do
+      reqStore <- readIORef reqStoreRef
+      if RequestStore.isEmpty reqStore
+        then waitCompletions env
+        else do
+          writeIORef reqStoreRef noRequests
+          (_, waits) <- performRequestStore 0 env reqStore
+          ifTrace flags 3 $ printf "performFetches: %d waits\n" (length waits)
+          -- empty the cache if we're not caching.  Is this the best
+          -- place to do it?  We do get to de-duplicate requests that
+          -- happen simultaneously.
+          when (caching flags == 0) $
+            writeIORef cacheRef emptyDataCache
+          emptyRunQueue env{ pendingWaits = waits ++ pendingWaits }
+
+    checkCompletions :: Env u -> IO (JobList u)
+    checkCompletions Env{..} = do
+      ifTrace flags 3 $ printf "checkCompletions\n"
+      comps <- atomically $ do
+        c <- readTVar completions
+        writeTVar completions []
+        return c
+      case comps of
+        [] -> return JobNil
+        _ -> do
+          ifTrace flags 3 $ printf "%d complete\n" (length comps)
+          let getComplete (CompleteReq a (IVar cr)) = do
+                r <- readIORef cr
+                case r of
+                  IVarFull _ -> do
+                    ifTrace flags 3 $ printf "existing result\n"
+                    return JobNil
+                    -- this happens if a data source reports a result,
+                    -- and then throws an exception.  We call putResult
+                    -- a second time for the exception, which comes
+                    -- ahead of the original request (because it is
+                    -- pushed on the front of the completions list) and
+                    -- therefore overrides it.
+                  IVarEmpty cv -> do
+                    writeIORef cr (IVarFull (eitherToResult a))
+                    return cv
+          jobs <- mapM getComplete comps
+          return (foldr appendJobList JobNil jobs)
+
+    waitCompletions :: Env u -> IO ()
+    waitCompletions env@Env{..} = do
+      ifTrace flags 3 $ printf "waitCompletions\n"
+      atomically $ do
+        c <- readTVar completions
+        when (null c) retry
+      emptyRunQueue env
+
+  --
+  schedule env JobNil (unHaxl haxl env) result
+  r <- readIORef resultRef
+  case r of
+    IVarEmpty _ -> throwIO (CriticalError "runHaxl: missing result")
+    IVarFull (Ok a)  -> return a
+    IVarFull (ThrowHaxl e)  -> throwIO e
+    IVarFull (ThrowIO e)  -> throwIO e
+
+
+{- Note [runHaxl and unfinished requests]
+
+runHaxl returns immediately when the supplied computation has returned
+a result.  This doesn't necessarily mean that the whole computaiton
+graph has completed, however.  In particular, when using pAnd and pOr,
+we might have created some data fetches that have not completed, but
+weren't required, because the other branch of the pAnd/pOr subsumed
+the result.
+
+When runHaxl returns, it might be that:
+- reqStoreRef contains some unsubmitted requests
+- runQueueRef contains some jobs
+- there are in-flight BackgroundFetch requests, that will return their
+  results to the completions queue in due course.
+- there are various unfilled IVars in the cache and/or memo tables
+
+This should be all safe, we can even restart runHaxl with the same Env
+after it has stopped and the in-progress computations will
+continue. But don't discard the contents of
+reqStoreRef/runQueueRef/completions, because then we'll deadlock if we
+discover one of the unfilled IVars in the cache or memo table.
+-}
+
+{- TODO: later
+data SchedPolicy
+  = SubmitImmediately
+  | WaitAtLeast Int{-ms-}
+  | WaitForAllPendingRequests
+-}
+
+
+-- -----------------------------------------------------------------------------
+-- Env utils
 
 -- | Extracts data from the 'Env'.
 env :: (Env u -> a) -> GenHaxl u a
-env f = GenHaxl $ \env _ref -> return (Done (f env))
+env f = GenHaxl $ \env -> return (Done (f env))
 
 -- | Returns a version of the Haxl computation which always uses the
 -- provided 'Env', ignoring the one specified by 'runHaxl'.
 withEnv :: Env u -> GenHaxl u a -> GenHaxl u a
-withEnv newEnv (GenHaxl m) = GenHaxl $ \_env ref -> do
-  r <- m newEnv ref
+withEnv newEnv (GenHaxl m) = GenHaxl $ \_env -> do
+  r <- m newEnv
   case r of
     Done a -> return (Done a)
     Throw e -> return (Throw e)
-    Blocked k -> return (Blocked (Cont (withEnv newEnv (toHaxl k))))
+    Blocked ivar k ->
+      return (Blocked ivar (Cont (withEnv newEnv (toHaxl k))))
+
+
+-- -----------------------------------------------------------------------------
+-- Profiling
 
 -- | Label a computation so profiling data is attributed to the label.
 withLabel :: ProfileLabel -> GenHaxl u a -> GenHaxl u a
-withLabel l (GenHaxl m) = GenHaxl $ \env ref ->
+withLabel l (GenHaxl m) = GenHaxl $ \env ->
   if report (flags env) < 4
-     then m env ref
-     else collectProfileData l m env ref
+     then m env
+     else collectProfileData l m env
 
 -- | Label a computation so profiling data is attributed to the label.
 -- Intended only for internal use by 'memoFingerprint'.
 withFingerprintLabel :: Addr# -> Addr# -> GenHaxl u a -> GenHaxl u a
-withFingerprintLabel mnPtr nPtr (GenHaxl m) = GenHaxl $ \env ref ->
+withFingerprintLabel mnPtr nPtr (GenHaxl m) = GenHaxl $ \env ->
   if report (flags env) < 4
-     then m env ref
+     then m env
      else collectProfileData
             (Text.unpackCString# mnPtr <> "." <> Text.unpackCString# nPtr)
-            m env ref
+            m env
 
 -- | Collect profiling data and attribute it to given label.
 collectProfileData
   :: ProfileLabel
-  -> (Env u -> IORef (RequestStore u) -> IO (Result u a))
-  -> Env u -> IORef (RequestStore u)
+  -> (Env u -> IO (Result u a))
+  -> Env u
   -> IO (Result u a)
-collectProfileData l m env ref = do
+collectProfileData l m env = do
    a0 <- getAllocationCounter
-   r <- m env{profLabel=l} ref -- what if it throws?
+   r <- m env{profLabel=l} -- what if it throws?
    a1 <- getAllocationCounter
    modifyProfileData env l (a0 - a1)
    -- So we do not count the allocation overhead of modifyProfileData
@@ -367,7 +805,7 @@ collectProfileData l m env ref = do
    case r of
      Done a -> return (Done a)
      Throw e -> return (Throw e)
-     Blocked k -> return (Blocked (Cont (withLabel l (toHaxl k))))
+     Blocked ivar k -> return (Blocked ivar (Cont (withLabel l (toHaxl k))))
 {-# INLINE collectProfileData #-}
 
 modifyProfileData :: Env u -> ProfileLabel -> AllocCount -> IO ()
@@ -400,12 +838,13 @@ incrementMemoHitCounterFor lbl p =
 incrementMemoHitCounter :: ProfileData -> ProfileData
 incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
 
+
 -- -----------------------------------------------------------------------------
 -- Exceptions
 
 -- | Throw an exception in the Haxl monad
 throw :: (Exception e) => e -> GenHaxl u a
-throw e = GenHaxl $ \_env _ref -> raise e
+throw e = GenHaxl $ \_env -> raise e
 
 raise :: (Exception e) => e -> IO (Result u a)
 raise e
@@ -421,13 +860,13 @@ raise e
 
 -- | Catch an exception in the Haxl monad
 catch :: Exception e => GenHaxl u a -> (e -> GenHaxl u a) -> GenHaxl u a
-catch (GenHaxl m) h = GenHaxl $ \env ref -> do
-   r <- m env ref
+catch (GenHaxl m) h = GenHaxl $ \env -> do
+   r <- m env
    case r of
      Done a    -> return (Done a)
-     Throw e | Just e' <- fromException e -> unHaxl (h e') env ref
+     Throw e | Just e' <- fromException e -> unHaxl (h e') env
              | otherwise -> return (Throw e)
-     Blocked k -> return (Blocked (Cont (catch (toHaxl k) h)))
+     Blocked ivar k -> return (Blocked ivar (Cont (catch (toHaxl k) h)))
 
 -- | Catch exceptions that satisfy a predicate
 catchIf
@@ -446,23 +885,25 @@ instance Catch.MonadThrow (GenHaxl u) where throwM = Haxl.Core.Monad.throw
 -- | @since 0.3.1.0
 instance Catch.MonadCatch (GenHaxl u) where catch = Haxl.Core.Monad.catch
 
+
 -- -----------------------------------------------------------------------------
 -- Unsafe operations
 
 -- | Under ordinary circumstances this is unnecessary; users of the Haxl
 -- monad should generally /not/ perform arbitrary IO.
 unsafeLiftIO :: IO a -> GenHaxl u a
-unsafeLiftIO m = GenHaxl $ \_env _ref -> Done <$> m
+unsafeLiftIO m = GenHaxl $ \_env -> Done <$> m
 
 -- | Convert exceptions in the underlying IO monad to exceptions in
 -- the Haxl monad.  This is morally unsafe, because you could then
 -- catch those exceptions in Haxl and observe the underlying execution
 -- order.  Not to be exposed to user code.
 unsafeToHaxlException :: GenHaxl u a -> GenHaxl u a
-unsafeToHaxlException (GenHaxl m) = GenHaxl $ \env ref -> do
-  r <- m env ref `Exception.catch` \e -> return (Throw e)
+unsafeToHaxlException (GenHaxl m) = GenHaxl $ \env -> do
+  r <- m env `Exception.catch` \e -> return (Throw e)
   case r of
-    Blocked c -> return (Blocked (Cont (unsafeToHaxlException (toHaxl c))))
+    Blocked cvar c ->
+      return (Blocked cvar (Cont (unsafeToHaxlException (toHaxl c))))
     other -> return other
 
 -- | Like 'try', but lifts all exceptions into the 'HaxlException'
@@ -477,21 +918,21 @@ tryToHaxlException h = left asHaxlException <$> try (unsafeToHaxlException h)
 -- Data fetching and caching
 
 -- | Possible responses when checking the cache.
-data CacheResult a
+data CacheResult u a
   -- | The request hadn't been seen until now.
-  = Uncached (ResultVar a)
+  = Uncached
+       (ResultVar a)
+       {-# UNPACK #-} !(IVar u a)
 
   -- | The request has been seen before, but its result has not yet been
   -- fetched.
-  | CachedNotFetched (ResultVar a)
+  | CachedNotFetched
+      {-# UNPACK #-} !(IVar u a)
 
   -- | The request has been seen before, and its result has already been
   -- fetched.
-  | Cached (Either SomeException a)
+  | Cached (ResultVal a)
 
--- | Checks the data cache for the result of a request.
-cached :: Request r a => Env u -> r a -> IO (CacheResult a)
-cached = cachedWithInsert show DataCache.insert
 
 -- | Show functions for request and its result.
 type ShowReq r a = (r a -> String, a -> String)
@@ -505,31 +946,33 @@ type ShowReq r a = (r a -> String, a -> String)
 -- argument.) None of the functions that does this is exported, so this is
 -- hidden from the Haxl user.
 
--- | Checks the data cache for the result of a request, inserting new results
--- with the given function.
 cachedWithInsert
-  :: Typeable (r a)
+  :: forall r a u .
+     Typeable (r a)
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> Env u
-  -> r a -> IO (CacheResult a)
-cachedWithInsert showFn insertFn env req = do
+  -> (r a -> IVar u a -> DataCache (IVar u) -> DataCache (IVar u))
+  -> Env u -> r a -> IO (CacheResult u a)
+cachedWithInsert showFn insertFn Env{..} req = do
+  cache <- readIORef cacheRef
   let
-    doFetch insertFn request cache = do
-      rvar <- newEmptyResult
-      writeIORef (cacheRef env) $! insertFn request rvar cache
-      return (Uncached rvar)
-  cache <- readIORef (cacheRef env)
+    doFetch = do
+      ivar <- newIVar
+      let done r = atomically $ do
+            cs <- readTVar completions
+            writeTVar completions (CompleteReq r ivar : cs)
+      writeIORef cacheRef $! insertFn req ivar cache
+      return (Uncached (mkResultVar done) ivar)
   case DataCache.lookup req cache of
-    Nothing -> doFetch insertFn req cache
-    Just rvar -> do
-      mb <- tryReadResult rvar
-      case mb of
-        Nothing -> return (CachedNotFetched rvar)
-        -- Use the cached result, even if it was an error.
-        Just r -> do
-          ifTrace (flags env) 3 $ putStrLn $ case r of
-            Left _ -> "Cached error: " ++ showFn req
-            Right _ -> "Cached request: " ++ showFn req
+    Nothing -> doFetch
+    Just (IVar cr) -> do
+      e <- readIORef cr
+      case e of
+        IVarEmpty _ -> return (CachedNotFetched (IVar cr))
+        IVarFull r -> do
+          ifTrace flags 3 $ putStrLn $ case r of
+            ThrowIO _ -> "Cached error: " ++ showFn req
+            ThrowHaxl _ -> "Cached error: " ++ showFn req
+            Ok _ -> "Cached request: " ++ showFn req
           return (Cached r)
 
 -- | Record the call stack for a data fetch in the Stats.  Only useful
@@ -561,31 +1004,44 @@ dataFetchWithShow (showReq, showRes) = dataFetchWithInsert showReq
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
 -- the given function to insert requests in the cache.
 dataFetchWithInsert
-  :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
+  :: forall u r a
+   . (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar)
+  -> (r a -> IVar u a -> DataCache (IVar u) -> DataCache (IVar u))
   -> r a
   -> GenHaxl u a
-dataFetchWithInsert showFn insertFn req = GenHaxl $ \env ref -> do
+dataFetchWithInsert showFn insertFn req =
+  GenHaxl $ \env@Env{..} -> do
   -- First, check the cache
   res <- cachedWithInsert showFn insertFn env req
-  ifProfiling (flags env) $ addProfileFetch env req
+  ifProfiling flags $ addProfileFetch env req
   case res of
-    -- Not seen before: add the request to the RequestStore, so it
-    -- will be fetched in the next round.
-    Uncached rvar -> do
+    -- This request has not been seen before
+    Uncached rvar ivar -> do
       logFetch env showFn req
-      modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
-      return $ Blocked (Cont (continueFetch showFn req rvar))
+      --
+      -- Check whether the data source wants to submit requests
+      -- eagerly, or batch them up.
+      --
+      case schedulerHint userEnv :: SchedulerHint r of
+        SubmitImmediately -> do
+          (_,ios) <- performFetches 0 env
+            [BlockedFetches [BlockedFetch req rvar]]
+          when (not (null ios)) $
+            error "bad data source:SubmitImmediately but returns FutureFetch"
+        TryToBatch ->
+          -- add the request to the RequestStore and continue
+          modifyIORef' reqStoreRef $ \bs ->
+            addRequest (BlockedFetch req rvar) bs
+      --
+      return $ Blocked ivar (Cont (getIVar ivar))
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
-    CachedNotFetched rvar ->
-      return (Blocked (Cont (continueFetch showFn req rvar)))
+    CachedNotFetched ivar -> return $ Blocked ivar (Cont (getIVar ivar))
 
     -- Cached: either a result, or an exception
-    Cached (Left ex) -> return (Throw ex)
-    Cached (Right a) -> return (Done a)
+    Cached r -> done r
 
 {-# NOINLINE addProfileFetch #-}
 addProfileFetch
@@ -598,23 +1054,14 @@ addProfileFetch env req = do
       dsName :: Text.Text
       dsName = dataSourceName req
 
-      upd :: Round -> ProfileData -> ProfileData
-      upd round d =
-        d { profileFetches = Map.alter (Just . f) round (profileFetches d) }
+      upd :: ProfileData -> ProfileData
+      upd d = d { profileFetches =
+        HashMap.insertWith (+) dsName 1 (profileFetches d) }
 
-      f Nothing   = HashMap.singleton dsName 1
-      f (Just hm) = HashMap.insertWith (+) dsName 1 hm
-    in case DataCache.lookup req (profileCache p) of
-        Nothing ->
-          let r = profileRound p
-          in p { profile = HashMap.adjust (upd r) (profLabel env) (profile p)
-               , profileCache =
-                  DataCache.insertNotShowable req (Constant r) (profileCache p)
-               }
-        Just (Constant r) ->
-          p { profile = HashMap.adjust (upd r) (profLabel env) (profile p) }
+    in p { profile = HashMap.adjust upd (profLabel env) (profile p) }
   -- So we do not count the allocation overhead of addProfileFetch
   setAllocationCounter c
+
 
 -- | A data request that is not cached.  This is not what you want for
 -- normal read requests, because then multiple identical requests may
@@ -628,20 +1075,15 @@ addProfileFetch env req = do
 -- conflict in the same Haxl computation.
 --
 uncachedRequest :: (DataSource u r, Show (r a)) => r a -> GenHaxl u a
-uncachedRequest req = GenHaxl $ \_env ref -> do
-  rvar <- newEmptyResult
-  modifyIORef' ref $ \bs -> addRequest (BlockedFetch req rvar) bs
-  return $ Blocked (Cont (continueFetch show req rvar))
+uncachedRequest req = GenHaxl $ \Env{..} -> do
+  cr <- newIVar
+  let done r = atomically $ do
+        cs <- readTVar completions
+        writeTVar completions (CompleteReq r cr : cs)
+  modifyIORef' reqStoreRef $ \bs ->
+    addRequest (BlockedFetch req (mkResultVar done)) bs
+  return $ Blocked cr (Cont (getIVar cr))
 
-continueFetch
-  :: (r a -> String)    -- See Note [showFn]
-  -> r a -> ResultVar a -> GenHaxl u a
-continueFetch showFn req rvar = GenHaxl $ \_env _ref -> do
-  m <- tryReadResult rvar
-  case m of
-    Nothing -> raise . DataSourceError $
-      Text.pack (showFn req) <> " did not set contents of result var"
-    Just r -> done r
 
 -- | Transparently provides caching. Useful for datasources that can
 -- return immediately, but also caches values.  Exceptions thrown by
@@ -664,19 +1106,26 @@ cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
 cacheResultWithInsert
   :: Typeable (r a)
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> ResultVar a -> DataCache ResultVar -> DataCache ResultVar) -> r a
+  -> (r a -> IVar u a -> DataCache (IVar u) -> DataCache (IVar u)) -> r a
   -> IO a -> GenHaxl u a
-cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env _ref -> do
-  cachedResult <- cachedWithInsert showFn insertFn env req
-  case cachedResult of
-    Uncached rvar -> do
-      result <- Exception.try val
-      putResult rvar result
-      case result of
-        Left e -> do rethrowAsyncExceptions e; done result
-        _other -> done result
-    Cached result -> done result
-    CachedNotFetched _ -> corruptCache
+cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env -> do
+  let !ref = cacheRef env
+  cache <- readIORef ref
+  case DataCache.lookup req cache of
+    Nothing -> do
+      eitherResult <- Exception.try val
+      case eitherResult of
+        Left e -> rethrowAsyncExceptions e
+        _ -> return ()
+      let result = eitherToResultThrowIO eitherResult
+      ivar <- newFullIVar result
+      writeIORef ref $! insertFn req ivar cache
+      done result
+    Just (IVar cr) -> do
+      e <- readIORef cr
+      case e of
+        IVarEmpty _ -> corruptCache
+        IVarFull r -> done r
   where
     corruptCache = raise . DataSourceError $ Text.concat
       [ Text.pack (showFn req)
@@ -696,13 +1145,13 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env _ref -> do
 --
 cacheRequest
   :: Request req a => req a -> Either SomeException a -> GenHaxl u ()
-cacheRequest request result = GenHaxl $ \env _ref -> do
-  res <- cached env request
-  case res of
-    Uncached rvar -> do
-      -- request was not in the cache: insert the result and continue
-      putResult rvar result
-      return $ Done ()
+cacheRequest request result = GenHaxl $ \env -> do
+  cache <- readIORef (cacheRef env)
+  case DataCache.lookup request cache of
+    Nothing -> do
+      cr <- newFullIVar (eitherToResult result)
+      writeIORef (cacheRef env) $! DataCache.insert request cr cache
+      return (Done ())
 
     -- It is an error if the request is already in the cache.  We can't test
     -- whether the cached result is the same without adding an Eq constraint,
@@ -713,18 +1162,20 @@ cacheRequest request result = GenHaxl $ \env _ref -> do
 instance IsString a => IsString (GenHaxl u a) where
   fromString s = return (fromString s)
 
+performRequestStore
+   :: forall u. Int -> Env u -> RequestStore u -> IO (Int, [IO ()])
+performRequestStore n env reqStore =
+  performFetches n env (contents reqStore)
+
 -- | Issues a batch of fetches in a 'RequestStore'. After
 -- 'performFetches', all the requests in the 'RequestStore' are
 -- complete, and all of the 'ResultVar's are full.
-performFetches :: forall u. Int -> Env u -> RequestStore u -> IO Int
-performFetches n env reqs = do
-  let f = flags env
-      sref = statsRef env
-      jobs = contents reqs
-      !n' = n + length jobs
+performFetches
+  :: forall u. Int -> Env u -> [BlockedFetches u] -> IO (Int, [IO ()])
+performFetches n env@Env{flags=f, statsRef=sref} jobs = do
+  let !n' = n + length jobs
 
-  t0 <- getCurrentTime
-  a0 <- getAllocationCounter
+  t0 <- getTimestamp
 
   let
     roundstats =
@@ -744,83 +1195,54 @@ performFetches n env reqs = do
       forM_ reqs $ \(BlockedFetch r _) -> putStrLn (showp r)
 
   let
-    applyFetch (i, BlockedFetches (reqs :: [BlockedFetch r])) =
+    applyFetch i (BlockedFetches (reqs :: [BlockedFetch r])) =
       case stateGet (states env) of
         Nothing ->
-          return (SyncFetch (mapM_ (setError e) reqs))
-          where e req = DataSourceError $
-                  "data source not initialized: " <>
-                  dataSourceName req <>
-                  ": " <>
-                  Text.pack (showp req)
+          return (FetchToDo reqs (SyncFetch (mapM_ (setError e))))
+         where
+           e req = DataSourceError $ "data source not initialized: " <> dsName
+                  <> ": "
+                  <> Text.pack (showp req)
         Just state ->
-          return $ wrapFetchInTrace i (length reqs)
-                    (dataSourceName (undefined :: r a))
-                 $ wrapFetchInCatch reqs
-                 $ fetch state f (userEnv env) reqs
+          return
+            $ FetchToDo reqs
+            $ (if report f >= 2
+                then wrapFetchInStats sref dsName (length reqs)
+                else id)
+            $ wrapFetchInTrace i (length reqs)
+               (dataSourceName (undefined :: r a))
+            $ wrapFetchInCatch reqs
+            $ fetch state f (userEnv env)
+      where
+        req :: r a; req = undefined; dsName = dataSourceName req
 
-  fetches <- mapM applyFetch $ zip [n..] jobs
+  fetches <- zipWithM applyFetch [n..] jobs
 
-  deepStats <-
-    if report f >= 2
-    then do
-      (refs, timedfetches) <- mapAndUnzipM wrapFetchInStats fetches
-      scheduleFetches timedfetches
-      mapM (fmap Just . readIORef) refs
-    else do
-      scheduleFetches fetches
-      return $ repeat Nothing
+  waits <- scheduleFetches fetches
 
-  failures <-
-    if report f >= 3
-    then
-      forM jobs $ \(BlockedFetches reqs) ->
-        fmap (Just . length) . flip filterM reqs $ \(BlockedFetch _ rvar) -> do
-          mb <- tryReadResult rvar
-          return $ case mb of
-            Just (Right _) -> False
-            _ -> True
-    else return $ repeat Nothing
-
-  let dsroundstats = HashMap.fromList
-         [ (name, DataSourceRoundStats { dataSourceFetches = dsfetch
-                                       , dataSourceTime = fst <$> dsStats
-                                       , dataSourceAllocation = snd <$> dsStats
-                                       , dataSourceFailures = dsfailure
-                                       })
-         | ((name, dsfetch), dsStats, dsfailure) <-
-             zip3 roundstats deepStats failures]
-
-  a1 <- getAllocationCounter
-  t1 <- getCurrentTime
-  let
-    roundtime = realToFrac (diffUTCTime t1 t0) :: Double
-    allocation = fromIntegral $ a0 - a1
-
-  ifReport f 1 $
-    modifyIORef' sref $ \(Stats rounds) -> roundstats `deepseq`
-      Stats (RoundStats (microsecs roundtime) allocation dsroundstats: rounds)
+  t1 <- getTimestamp
+  let roundtime = fromIntegral (t1 - t0) / 1000000 :: Double
 
   ifTrace f 1 $
     printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
 
-  ifProfiling f $
-    modifyIORef' (profRef env) $ \ p -> p { profileRound = 1 + profileRound p }
+  return (n', waits)
 
-  return n'
+data FetchToDo where
+  FetchToDo :: [BlockedFetch req] -> PerformFetch req -> FetchToDo
 
 -- Catch exceptions arising from the data source and stuff them into
 -- the appropriate requests.  We don't want any exceptions propagating
 -- directly from the data sources, because we want the exception to be
 -- thrown by dataFetch instead.
 --
-wrapFetchInCatch :: [BlockedFetch req] -> PerformFetch -> PerformFetch
+wrapFetchInCatch :: [BlockedFetch req] -> PerformFetch req -> PerformFetch req
 wrapFetchInCatch reqs fetch =
   case fetch of
-    SyncFetch io ->
-      SyncFetch (io `Exception.catch` handler)
-    AsyncFetch fio ->
-      AsyncFetch (\io -> fio io `Exception.catch` handler)
+    SyncFetch f ->
+      SyncFetch $ \reqs -> f reqs `Exception.catch` handler
+    AsyncFetch f ->
+      AsyncFetch $ \reqs io -> f reqs io `Exception.catch` handler
       -- this might be wrong: if the outer 'fio' throws an exception,
       -- then we don't know whether we have executed the inner 'io' or
       -- not.  If not, then we'll likely get some errors about "did
@@ -831,6 +1253,11 @@ wrapFetchInCatch reqs fetch =
       -- sources themselves to catch (synchronous) exceptions.  Async
       -- exceptions aren't a problem because we're going to rethrow
       -- them all the way to runHaxl anyway.
+    FutureFetch f ->
+      FutureFetch $ \reqs -> f reqs `Exception.catch` (
+                     \e -> handler e >> return (return ()))
+    BackgroundFetch f ->
+      BackgroundFetch $ \reqs -> f reqs `Exception.catch` handler
   where
     handler :: SomeException -> IO ()
     handler e = do
@@ -839,30 +1266,90 @@ wrapFetchInCatch reqs fetch =
 
     -- Set the exception even if the request already had a result.
     -- Otherwise we could be discarding an exception.
-    forceError e (BlockedFetch _ rvar) = do
-      void $ tryTakeResult rvar
+    forceError e (BlockedFetch _ rvar) =
       putResult rvar (except e)
 
-wrapFetchInStats :: PerformFetch -> IO (IORef (Microseconds, Int), PerformFetch)
-wrapFetchInStats f = do
-  r <- newIORef (0, 0)
-  case f of
-    SyncFetch io -> return (r, SyncFetch (statsForIO io >>= writeIORef r))
+
+wrapFetchInStats
+  :: IORef Stats
+  -> Text
+  -> Int
+  -> PerformFetch req
+  -> PerformFetch req
+
+wrapFetchInStats !statsRef dataSource batchSize perform = do
+  case perform of
+    SyncFetch f ->
+      SyncFetch $ \reqs -> do
+        fail_ref <- newIORef 0
+        (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount fail_ref) reqs))
+        failures <- readIORef fail_ref
+        updateFetchStats t0 t alloc batchSize failures
     AsyncFetch f -> do
-       inner_r <- newIORef (0, 0)
-       return (r, AsyncFetch $ \inner -> do
-         (totalTime, totalAlloc) <-
-           statsForIO (f (statsForIO inner >>= writeIORef inner_r))
-         (innerTime, innerAlloc) <- readIORef inner_r
-         writeIORef r (totalTime - innerTime, totalAlloc - innerAlloc))
+      AsyncFetch $ \reqs inner -> do
+        inner_r <- newIORef (0, 0)
+        fail_ref <- newIORef 0
+        let inner' = do
+              (_,t,alloc,_) <- statsForIO inner
+              writeIORef inner_r (t,alloc)
+            reqs' = map (addFailureCount fail_ref) reqs
+        (t0, totalTime, totalAlloc, _) <- statsForIO (f reqs' inner')
+        (innerTime, innerAlloc) <- readIORef inner_r
+        failures <- readIORef fail_ref
+        updateFetchStats t0 (totalTime - innerTime) (totalAlloc - innerAlloc)
+          batchSize failures
+    FutureFetch submit ->
+      FutureFetch $ \reqs -> do
+        fail_ref <- newIORef 0
+        let reqs' = map (addFailureCount fail_ref) reqs
+        (t0, submitTime, submitAlloc, wait) <- statsForIO (submit reqs')
+        return $ do
+          (_, waitTime, waitAlloc, _) <- statsForIO wait
+          failures <- readIORef fail_ref
+          updateFetchStats t0 (submitTime + waitTime) (submitAlloc + waitAlloc)
+            batchSize failures
+    BackgroundFetch io -> do
+      BackgroundFetch $ \reqs -> do
+        startTime <- getTimestamp
+        io (map (addTimer startTime) reqs)
   where
     statsForIO io = do
       prevAlloc <- getAllocationCounter
-      t <- time io
+      (t0,t,a) <- time io
       postAlloc <- getAllocationCounter
-      return (t, fromIntegral $ prevAlloc - postAlloc)
+      return (t0,t, fromIntegral $ prevAlloc - postAlloc, a)
 
-wrapFetchInTrace :: Int -> Int -> Text.Text -> PerformFetch -> PerformFetch
+    addTimer t0 (BlockedFetch req (ResultVar fn)) =
+      BlockedFetch req $ ResultVar $ \result -> do
+        t1 <- getTimestamp
+        updateFetchStats t0 (t1 - t0)
+          0 -- allocs: we can't measure this easily for BackgroundFetch
+          1 -- batch size: we don't know if this is a batch or not
+          (if isLeft result then 1 else 0) -- failures
+        fn result
+
+    updateFetchStats :: Timestamp -> Microseconds -> Int64 -> Int -> Int -> IO ()
+    updateFetchStats start time space batch failures = do
+      let this = FetchStats { fetchDataSource = dataSource
+                            , fetchBatchSize = batch
+                            , fetchStart = start
+                            , fetchDuration = time
+                            , fetchSpace = space
+                            , fetchFailures = failures }
+      atomicModifyIORef' statsRef $ \(Stats fs) -> (Stats (this : fs), ())
+
+    addFailureCount :: IORef Int -> BlockedFetch r -> BlockedFetch r
+    addFailureCount ref (BlockedFetch req (ResultVar fn)) =
+      BlockedFetch req $ ResultVar $ \result -> do
+        when (isLeft result) $ atomicModifyIORef' ref (\r -> (r+1,()))
+        fn result
+
+wrapFetchInTrace
+  :: Int
+  -> Int
+  -> Text.Text
+  -> PerformFetch req
+  -> PerformFetch req
 #ifdef EVENTLOG
 wrapFetchInTrace i n dsName f =
   case f of
@@ -880,83 +1367,38 @@ wrapFetchInTrace i n dsName f =
 wrapFetchInTrace _ _ _ f = f
 #endif
 
-time :: IO () -> IO Microseconds
+time :: IO a -> IO (Timestamp,Microseconds,a)
 time io = do
-  t0 <- getCurrentTime
-  io
-  t1 <- getCurrentTime
-  return . microsecs . realToFrac $ t1 `diffUTCTime` t0
-
-microsecs :: Double -> Microseconds
-microsecs t = round (t * 10^(6::Int))
+  t0 <- getTimestamp
+  a <- io
+  t1 <- getTimestamp
+  return (t0, t1 - t0, a)
 
 -- | Start all the async fetches first, then perform the sync fetches before
 -- getting the results of the async fetches.
-scheduleFetches :: [PerformFetch] -> IO()
-scheduleFetches fetches = async_fetches sync_fetches
+scheduleFetches :: [FetchToDo] -> IO [IO ()]
+scheduleFetches fetches = do
+  fully_async_fetches
+  waits <- future_fetches
+  async_fetches sync_fetches
+  return waits
  where
+  fully_async_fetches :: IO ()
+  fully_async_fetches =
+    sequence_ [f reqs | FetchToDo reqs (BackgroundFetch f) <- fetches]
+
+  future_fetches :: IO [IO ()]
+  future_fetches = sequence [f reqs | FetchToDo reqs (FutureFetch f) <- fetches]
+
   async_fetches :: IO () -> IO ()
-  async_fetches = compose [f | AsyncFetch f <- fetches]
+  async_fetches = compose [f reqs | FetchToDo reqs (AsyncFetch f) <- fetches]
 
   sync_fetches :: IO ()
-  sync_fetches = sequence_ [io | SyncFetch io <- fetches]
+  sync_fetches = sequence_ [f reqs | FetchToDo reqs (SyncFetch f) <- fetches]
 
 
 -- -----------------------------------------------------------------------------
 -- Memoization
-
--- | Variables representing memoized computations.
-newtype MemoVar u a = MemoVar (IORef (MemoStatus u a))
-newtype MemoVar1 u a b = MemoVar1 (IORef (MemoStatus1 u a b))
-newtype MemoVar2 u a b c = MemoVar2 (IORef (MemoStatus2 u a b c))
-
--- | The state of a memoized computation
-data MemoStatus u a
-  -- | Memoized computation under evaluation. The memo was last evaluated during
-  -- the given round, or never, if the given round is Nothing. The continuation
-  -- might be slightly out of date, but that's fine; the worst that can happen
-  -- is we do a little extra work.
-  = MemoInProgress (RoundId u) (GenHaxl u a)
-
-  -- | A fully evaluated memo; here is the result.
-  | MemoDone (Either SomeException a)
-
-  -- | A new memo, with a stored computation. Not empty, but has not been run
-  -- yet.
-  | MemoNew (GenHaxl u a)
-
-  -- | An empty memo, should not be run before preparation.
-  | MemoEmpty
-
--- | The state of a memoized 1-argument function.
-data MemoStatus1 u a b
-  -- | An unprepared memo.
-  = MemoEmpty1
-  -- | A memo-table containing @MemoStatus@es for at least one in-progress memo.
-  | MemoTbl1 ( a -> GenHaxl u b
-             , HashMap.HashMap a
-               (MemoVar u b))
-
-data MemoStatus2 u a b c
-  -- | An unprepared memo.
-  = MemoEmpty2
-  -- | A memo-table containing @MemoStatus@es for at least one in-progress memo.
-  | MemoTbl2 ( a -> b -> GenHaxl u c
-             , HashMap.HashMap a
-               (HashMap.HashMap b
-                 (MemoVar u c)))
-
-type RoundId u = IORef (RequestStore u)
-{-
-Note [RoundId]
-
-A token representing the round.  This needs to be unique per round,
-and it needs to support Eq.  Fortunately the IORef RequestStore is
-exactly what we need: IORef supports Eq, and we make a new one for
-each round.  There's a danger that storing this in the DataCache could
-cause a space leak, so we stub out the contents after each round (see
-runHaxl).
--}
 
 -- | 'cachedComputation' memoizes a Haxl computation.  The key is a
 -- request.
@@ -970,23 +1412,18 @@ cachedComputation
       , Hashable (req a)
       , Typeable (req a))
    => req a -> GenHaxl u a -> GenHaxl u a
-cachedComputation req haxl = do
-  env <- env id
-  cache <- unsafeLiftIO $ readIORef (memoRef env)
-  unsafeLiftIO $ ifProfiling (flags env) $
-    modifyIORef' (profRef env) (incrementMemoHitCounterFor (profLabel env))
-  memoVar <- case DataCache.lookup req cache of
-               Nothing -> do
-                 memoVar <- newMemoWith haxl
-                 unsafeLiftIO $ writeIORef (memoRef env) $!
-                   DataCache.insertNotShowable req memoVar cache
-                 return memoVar
-               Just memoVar -> return memoVar
-  runMemo memoVar
 
--- | Lifts an 'Either' into either 'Throw' or 'Done'.
-done :: Either SomeException a -> IO (Result u a)
-done = return . either Throw Done
+cachedComputation req haxl = GenHaxl $ \env@Env{..} -> do
+  cache <- readIORef memoRef
+  ifProfiling flags $
+     modifyIORef' profRef (incrementMemoHitCounterFor profLabel)
+  case DataCache.lookup req cache of
+    Just ivar -> unHaxl (getIVar ivar) env
+    Nothing -> do
+      ivar <- newIVar
+      writeIORef memoRef $! DataCache.insertNotShowable req ivar cache
+      unHaxl (execMemoNow haxl ivar) env
+
 
 -- | Like 'cachedComputation', but fails if the cache is already
 -- populated.
@@ -1002,19 +1439,17 @@ preCacheComputation
      , Hashable (req a)
      , Typeable (req a))
   => req a -> GenHaxl u a -> GenHaxl u a
-preCacheComputation req haxl = do
-  env <- env id
-  cache <- unsafeLiftIO $ readIORef (memoRef env)
-  unsafeLiftIO $ ifProfiling (flags env) $
-    modifyIORef' (profRef env) (incrementMemoHitCounterFor (profLabel env))
+preCacheComputation req haxl = GenHaxl $ \env@Env{..} -> do
+  cache <- readIORef memoRef
+  ifProfiling flags $
+     modifyIORef' profRef (incrementMemoHitCounterFor profLabel)
   case DataCache.lookup req cache of
-    Nothing -> do
-      memoVar <- newMemoWith haxl
-      unsafeLiftIO $ writeIORef (memoRef env) $!
-        DataCache.insertNotShowable req memoVar cache
-      runMemo memoVar
-    Just _ -> throw $ InvalidParameter $
+    Just _ -> return $ Throw $ toException $ InvalidParameter $
       "preCacheComputation: key is already cached"
+    Nothing -> do
+      ivar <- newIVar
+      writeIORef memoRef $! DataCache.insertNotShowable req ivar cache
+      unHaxl (execMemoNow haxl ivar) env
 
 -- -----------------------------------------------------------------------------
 
@@ -1038,18 +1473,39 @@ dumpCacheAsHaskellFn :: String -> String -> GenHaxl u String
 dumpCacheAsHaskellFn fnName fnType = do
   ref <- env cacheRef  -- NB. cacheRef, not memoRef.  We ignore memoized
                        -- results when dumping the cache.
-  entries <- unsafeLiftIO $ readIORef ref >>= showCache
   let
+    readIVar (IVar ref) = do
+      r <- readIORef ref
+      case r of
+        IVarFull (Ok a) -> return (Just (Right a))
+        IVarFull (ThrowHaxl e) -> return (Just (Left e))
+        IVarFull (ThrowIO e) -> return (Just (Left e))
+        IVarEmpty _ -> return Nothing
+
     mk_cr (req, res) =
       text "cacheRequest" <+> parens (text req) <+> parens (result res)
     result (Left e) = text "except" <+> parens (text (show e))
     result (Right s) = text "Right" <+> parens (text s)
+
+  entries <- unsafeLiftIO $ do
+    cache <- readIORef ref
+    showCache cache readIVar
 
   return $ show $
     text (fnName ++ " :: " ++ fnType) $$
     text (fnName ++ " = do") $$
       nest 2 (vcat (map mk_cr (concatMap snd entries))) $$
     text "" -- final newline
+
+-- -----------------------------------------------------------------------------
+-- Memoization
+
+newtype MemoVar u a = MemoVar (IORef (MemoStatus u a))
+
+data MemoStatus u a
+  = MemoEmpty
+  | MemoReady (GenHaxl u a)
+  | MemoRun {-# UNPACK #-} !(IVar u a)
 
 -- | Create a new @MemoVar@ for storing a memoized computation. The created
 -- @MemoVar@ is initially empty, not tied to any specific computation. Running
@@ -1063,7 +1519,7 @@ newMemo = unsafeLiftIO $ MemoVar <$> newIORef MemoEmpty
 -- the supplied computation. A @MemoVar@ must be prepared before it is run.
 prepareMemo :: MemoVar u a -> GenHaxl u a -> GenHaxl u ()
 prepareMemo (MemoVar memoRef) memoCmp
-  = unsafeLiftIO $ writeIORef memoRef (MemoNew memoCmp)
+  = unsafeLiftIO $ writeIORef memoRef (MemoReady memoCmp)
 
 -- | Convenience function, combines @newMemo@ and @prepareMemo@.
 newMemoWith :: GenHaxl u a -> GenHaxl u (MemoVar u a)
@@ -1121,45 +1577,54 @@ newMemoWith memoCmp = do
 -- >   return (a + b)
 --
 runMemo :: MemoVar u a -> GenHaxl u a
-runMemo memoVar@(MemoVar memoRef) = GenHaxl $ \env rID ->
-  readIORef memoRef >>= \case
+runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
+  stored <- readIORef memoRef
+  case stored of
     -- Memo was not prepared first; throw an exception.
     MemoEmpty -> raise $ CriticalError "Attempting to run empty memo."
-    -- The memo is complete.
-    MemoDone result -> done result
-    -- Memo has just been prepared, run it.
-    MemoNew cont -> runContToMemo cont env rID
-    -- The memo is in progress, there *may* be progress to be made.
-    MemoInProgress rID' cont
-      -- The last update was performed *this* round and is still in progress;
-      -- nothing further can be done this round. Wait until the next round.
-      | rID' == rID -> return (Blocked $ Cont retryMemo)
-      -- This is the first time this memo is being run during this round, or
-      -- at all. Enough progress may have been made to continue running the
-      -- memo.
-      | otherwise -> runContToMemo cont env rID
- where
-  -- Continuation to retry an existing memo. It is not possible to *retry* an
-  -- empty memo; that will throw an exception during the next round.
-  retryMemo = runMemo memoVar
+    -- Memo has been prepared but not run yet
+    MemoReady cont -> do
+      ivar <- newIVar
+      writeIORef memoRef (MemoRun ivar)
+      unHaxl (execMemoNow cont ivar) env
+    -- The memo has already been run, get (or wait for) for the result
+    MemoRun ivar -> unHaxl (getIVar ivar) env
 
-  -- Run a continuation, and store the result in the memo reference. Any
-  -- exceptions thrown during the running of the memo are thrown directly; they
-  -- are also stored in the memoVar just in case, but we shouldn't be looking at
-  -- the memoVar again anyway.
-  --
-  -- If the memo is incomplete by the end of this round, update its progress
-  -- indicator and block.
-  runContToMemo cont env rID = do
-    result <- unHaxl cont env rID
-    case result of
-      Done a -> finalize (Right a)
-      Throw e -> finalize (Left e)
-      Blocked c -> do
-        writeIORef memoRef (MemoInProgress rID (toHaxl c))
-        return (Blocked $ Cont retryMemo)
 
-  finalize r = writeIORef memoRef (MemoDone r) >> done r
+execMemoNow :: GenHaxl u a -> IVar u a -> GenHaxl u a
+execMemoNow cont ivar = GenHaxl $ \env -> do
+  let !ienv = imperative env   -- don't speculate under memoized things
+  r <- Exception.try $ unHaxl cont ienv
+  case r of
+    Left e -> do
+      rethrowAsyncExceptions e
+      putIVar ivar (ThrowIO e) env
+      throwIO e
+    Right (Done a) -> do
+      putIVar ivar (Ok a) env
+      return (Done a)
+    Right (Throw ex) -> do
+      putIVar ivar (ThrowHaxl ex) env
+      return (Throw ex)
+    Right (Blocked ivar' cont) -> do
+      addJob (unHaxl (toHaxl cont) env) ivar ivar'
+      return (Blocked ivar (Cont (getIVar ivar)))
+
+-- -----------------------------------------------------------------------------
+-- 1-ary and 2-ary memo functions
+
+newtype MemoVar1 u a b = MemoVar1 (IORef (MemoStatus1 u a b))
+newtype MemoVar2 u a b c = MemoVar2 (IORef (MemoStatus2 u a b c))
+
+data MemoStatus1 u a b
+  = MemoEmpty1
+  | MemoTbl1 (a -> GenHaxl u b) (HashMap.HashMap a (MemoVar u b))
+
+data MemoStatus2 u a b c
+  = MemoEmpty2
+  | MemoTbl2
+      (a -> b -> GenHaxl u c)
+      (HashMap.HashMap a (HashMap.HashMap b (MemoVar u c)))
 
 newMemo1 :: GenHaxl u (MemoVar1 u a b)
 newMemo1 = unsafeLiftIO $ MemoVar1 <$> newIORef MemoEmpty1
@@ -1169,15 +1634,15 @@ newMemoWith1 f = newMemo1 >>= \r -> prepareMemo1 r f >> return r
 
 prepareMemo1 :: MemoVar1 u a b -> (a -> GenHaxl u b) -> GenHaxl u ()
 prepareMemo1 (MemoVar1 r) f
-  = unsafeLiftIO $ writeIORef r (MemoTbl1 (f, HashMap.empty))
+  = unsafeLiftIO $ writeIORef r (MemoTbl1 f HashMap.empty)
 
 runMemo1 :: (Eq a, Hashable a) => MemoVar1 u a b -> a -> GenHaxl u b
 runMemo1 (MemoVar1 r) k = unsafeLiftIO (readIORef r) >>= \case
   MemoEmpty1 -> throw $ CriticalError "Attempting to run empty memo."
-  MemoTbl1 (f, h) -> case HashMap.lookup k h of
+  MemoTbl1 f h -> case HashMap.lookup k h of
     Nothing -> do
       x <- newMemoWith (f k)
-      unsafeLiftIO $ writeIORef r (MemoTbl1 (f, HashMap.insert k x h))
+      unsafeLiftIO $ writeIORef r (MemoTbl1 f (HashMap.insert k x h))
       runMemo x
     Just v -> runMemo v
 
@@ -1189,26 +1654,27 @@ newMemoWith2 f = newMemo2 >>= \r -> prepareMemo2 r f >> return r
 
 prepareMemo2 :: MemoVar2 u a b c -> (a -> b -> GenHaxl u c) -> GenHaxl u ()
 prepareMemo2 (MemoVar2 r) f
-  = unsafeLiftIO $ writeIORef r (MemoTbl2 (f, HashMap.empty))
+  = unsafeLiftIO $ writeIORef r (MemoTbl2 f HashMap.empty)
 
 runMemo2 :: (Eq a, Hashable a, Eq b, Hashable b)
          => MemoVar2 u a b c
          -> a -> b -> GenHaxl u c
 runMemo2 (MemoVar2 r) k1 k2 = unsafeLiftIO (readIORef r) >>= \case
   MemoEmpty2 -> throw $ CriticalError "Attempting to run empty memo."
-  MemoTbl2 (f, h1) -> case HashMap.lookup k1 h1 of
+  MemoTbl2 f h1 -> case HashMap.lookup k1 h1 of
     Nothing -> do
       v <- newMemoWith (f k1 k2)
       unsafeLiftIO $ writeIORef r
-        (MemoTbl2 (f, HashMap.insert k1 (HashMap.singleton k2 v) h1))
+        (MemoTbl2 f (HashMap.insert k1 (HashMap.singleton k2 v) h1))
       runMemo v
     Just h2 -> case HashMap.lookup k2 h2 of
       Nothing -> do
         v <- newMemoWith (f k1 k2)
         unsafeLiftIO $ writeIORef r
-          (MemoTbl2 (f, HashMap.insert k1 (HashMap.insert k2 v h2) h1))
+          (MemoTbl2 f (HashMap.insert k1 (HashMap.insert k2 v h2) h1))
         runMemo v
       Just v -> runMemo v
+
 
 
 -- -----------------------------------------------------------------------------
@@ -1217,6 +1683,16 @@ runMemo2 (MemoVar2 r) k1 k2 = unsafeLiftIO (readIORef r) >>= \case
 -- Bind more tightly than .&&, .||
 infixr 5 `pAnd`
 infixr 4 `pOr`
+
+speculate :: Env u -> Env u
+speculate env@Env{..}
+  | speculative == 0 = env { speculative = 1 }
+  | otherwise = env
+
+imperative :: Env u -> Env u
+imperative env@Env{..}
+  | speculative == 1 = env { speculative = 0 }
+  | otherwise = env
 
 -- | Parallel version of '(.||)'.  Both arguments are evaluated in
 -- parallel, and if either returns 'True' then the other is
@@ -1228,20 +1704,26 @@ infixr 4 `pOr`
 -- the other argument may have produced if it had been allowed to
 -- complete.
 pOr :: GenHaxl u Bool -> GenHaxl u Bool -> GenHaxl u Bool
-GenHaxl a `pOr` GenHaxl b = GenHaxl $ \env ref -> do
-  ra <- a env ref
+GenHaxl a `pOr` GenHaxl b = GenHaxl $ \env@Env{..} -> do
+  let !senv = speculate env
+  ra <- a senv
   case ra of
     Done True -> return (Done True)
-    Done False -> b env ref
+    Done False -> b env  -- not speculative
     Throw _ -> return ra
-    Blocked a' -> do
-      rb <- b env ref
+    Blocked ia a' -> do
+      rb <- b senv
       case rb of
-        Done True -> return (Blocked (Cont (return True)))
-          -- Note [tricky pOr/pAnd]
+        Done True -> return rb
         Done False -> return ra
-        Throw e -> return (Blocked (Cont (throw e)))
-        Blocked b' -> return (Blocked (Cont (toHaxl a' `pOr` toHaxl b')))
+        Throw _ -> return rb
+        Blocked _ b' -> return (Blocked ia (Cont (toHaxl a' `pOr` toHaxl b')))
+          -- Note [pOr Blocked/Blocked]
+          -- This will only wake up when ia is filled, which
+          -- is whatever the left side was waiting for.  This is
+          -- suboptimal because the right side might wake up first,
+          -- but handling this non-determinism would involve a much
+          -- more complicated implementation here.
 
 -- | Parallel version of '(.&&)'.  Both arguments are evaluated in
 -- parallel, and if either returns 'False' then the other is
@@ -1253,37 +1735,18 @@ GenHaxl a `pOr` GenHaxl b = GenHaxl $ \env ref -> do
 -- the other argument may have produced if it had been allowed to
 -- complete.
 pAnd :: GenHaxl u Bool -> GenHaxl u Bool -> GenHaxl u Bool
-GenHaxl a `pAnd` GenHaxl b = GenHaxl $ \env ref -> do
-  ra <- a env ref
+GenHaxl a `pAnd` GenHaxl b = GenHaxl $ \env@Env{..} -> do
+  let !senv = speculate env
+  ra <- a senv
   case ra of
     Done False -> return (Done False)
-    Done True -> b env ref
+    Done True -> b env
     Throw _ -> return ra
-    Blocked a' -> do
-      rb <- b env ref
+    Blocked ia a' -> do
+      rb <- b senv
       case rb of
-        Done False -> return (Blocked (Cont (return False)))
-          -- Note [tricky pOr/pAnd]
+        Done False -> return rb
         Done True -> return ra
         Throw _ -> return rb
-        Blocked b' -> return (Blocked (Cont (toHaxl a' `pAnd` toHaxl b')))
-
-{-
-Note [tricky pOr/pAnd]
-
-If one branch returns (Done True) and the other returns (Blocked _),
-even though we know the result will be True (in the case of pOr), we
-must return Blocked.  This is because there are data fetches to
-perform, and if we don't do this, the cache is left with an empty
-ResultVar, and the next fetch for the same request will fail.
-
-Alternatives:
-
- * Test for a non-empty RequestStore in runHaxl when we get Done, but
-   that would penalise every runHaxl.
-
- * Try to abandon the fetches. This is hard: we've already stored the
-   requests and a ResultVars in the cache, and we don't know how to
-   find the right fetches to remove from the cache.  Furthermore, we
-   might have partially computed some memoized computations.
--}
+        Blocked _ b' -> return (Blocked ia (Cont (toHaxl a' `pAnd` toHaxl b')))
+         -- See Note [pOr Blocked/Blocked]

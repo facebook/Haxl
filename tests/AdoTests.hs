@@ -42,8 +42,8 @@ ado3_ = do
   b' <- friendsOf  =<< if null b then id4 else id3
   return (length (a' ++ b'))
 
-tests = TestList
-  [ TestLabel "ado1" $ TestCase ado1
-  , TestLabel "ado2" $ TestCase ado2
-  , TestLabel "ado3" $ TestCase ado3
+tests future = TestList
+  [ TestLabel "ado1" $ TestCase (ado1 future)
+  , TestLabel "ado2" $ TestCase (ado2 future)
+  , TestLabel "ado3" $ TestCase (ado3 future)
   ]

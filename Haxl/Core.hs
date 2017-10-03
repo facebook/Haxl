@@ -39,20 +39,16 @@ module Haxl.Core (
 
   -- ** Statistics
   Stats(..),
-  RoundStats(..),
-  DataSourceRoundStats(..),
+  FetchStats(..),
   Microseconds,
   emptyStats,
   numRounds,
   numFetches,
   ppStats,
-  ppRoundStats,
-  ppDataSourceRoundStats,
+  ppFetchStats,
   Profile,
   emptyProfile,
   profile,
-  profileRound,
-  profileCache,
   ProfileLabel,
   ProfileData(..),
   emptyProfileData,
@@ -72,17 +68,14 @@ module Haxl.Core (
   BlockedFetch(..),
   PerformFetch(..),
   StateKey(..),
+  SchedulerHint(..),
 
   -- ** Result variables
   ResultVar(..),
-  newEmptyResult,
-  newResult,
+  mkResultVar,
   putFailure,
   putResult,
   putSuccess,
-  takeResult,
-  tryReadResult,
-  tryTakeResult,
 
   -- ** Default fetch implementations
   asyncFetch, asyncFetchWithDispatch, asyncFetchAcquireRelease,

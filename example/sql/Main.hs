@@ -76,7 +76,18 @@ instance DataSourceName UserReq where
   dataSourceName _ = "UserDataSource"
 
 instance DataSource u UserReq where
-  fetch _state _flags _userEnv blockedFetches = SyncFetch $ do
+  fetch _state _flags _userEnv = SyncFetch $ \blockedFetches -> do
+    let
+      allIdVars :: [ResultVar [Id]]
+      allIdVars = [r | BlockedFetch GetAllIds r <- blockedFetches]
+
+      idStrings :: [String]
+      idStrings = map show ids
+
+      ids :: [Id]
+      vars :: [ResultVar Name]
+      (ids, vars) = unzip
+        [(userId, r) | BlockedFetch (GetNameById userId) r <- blockedFetches]
 
     unless (null allIdVars) $ do
       allIds <- sql "select id from ids"
@@ -89,18 +100,6 @@ instance DataSource u UserReq where
         , "order by find_in_set(id, '" ++ intercalate "," idStrings ++ "')"
         ]
       mapM_ (uncurry putSuccess) (zip vars names)
-
-    where
-    allIdVars :: [ResultVar [Id]]
-    allIdVars = [r | BlockedFetch GetAllIds r <- blockedFetches]
-
-    idStrings :: [String]
-    idStrings = map show ids
-
-    ids :: [Id]
-    vars :: [ResultVar Name]
-    (ids, vars) = unzip
-      [(userId, r) | BlockedFetch (GetNameById userId) r <- blockedFetches]
 
 -- Mock SQL API.
 

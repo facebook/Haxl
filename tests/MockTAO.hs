@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module MockTAO (
     Id(..),
@@ -43,16 +44,18 @@ instance Hashable (TAOReq a) where
   hashWithSalt s (AssocRangeId2s a b) = hashWithSalt s (a,b)
 
 instance StateKey TAOReq where
-  data State TAOReq = TAOState {}
+  data State TAOReq = TAOState { future :: Bool }
 
 instance DataSourceName TAOReq where
   dataSourceName _ = "MockTAO"
 
 instance DataSource UserEnv TAOReq where
-  fetch _state _flags _user bfs = SyncFetch $ mapM_ doFetch bfs
+  fetch TAOState{..} _flags _user
+    | future = FutureFetch $ return . mapM_ doFetch
+    | otherwise = SyncFetch $ mapM_ doFetch
 
-initGlobalState :: IO (State TAOReq)
-initGlobalState = return TAOState {}
+initGlobalState :: Bool -> IO (State TAOReq)
+initGlobalState future = return TAOState { future=future }
 
 doFetch :: BlockedFetch TAOReq -> IO ()
 doFetch (BlockedFetch req@(AssocRangeId2s a b) r) =

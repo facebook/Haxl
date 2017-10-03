@@ -20,7 +20,7 @@
 -- users should not need to import it.
 module Haxl.Core.RequestStore (
     BlockedFetches(..), RequestStore,
-    noRequests, addRequest, contents
+    isEmpty, noRequests, addRequest, contents
   ) where
 
 import Haxl.Core.Types
@@ -38,6 +38,9 @@ newtype RequestStore u = RequestStore (Map TypeRep (BlockedFetches u))
 -- | A batch of 'BlockedFetch' objects for a single 'DataSource'
 data BlockedFetches u =
   forall r. (DataSource u r) => BlockedFetches [BlockedFetch r]
+
+isEmpty :: RequestStore u -> Bool
+isEmpty (RequestStore m) = Map.null m
 
 -- | A new empty 'RequestStore'.
 noRequests :: RequestStore u

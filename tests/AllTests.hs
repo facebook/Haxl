@@ -13,21 +13,24 @@ import ProfileTests
 #endif
 import MemoizationTests
 import TestBadDataSource
+import FullyAsyncTest
 
 import Test.HUnit
 
 allTests :: Test
 allTests = TestList
   [ TestLabel "ExampleDataSource" TestExampleDataSource.tests
-  , TestLabel "BatchTests" BatchTests.tests
+  , TestLabel "BatchTests-future" $ BatchTests.tests True
+  , TestLabel "BatchTests-sync" $ BatchTests.tests False
   , TestLabel "CoreTests" CoreTests.tests
   , TestLabel "DataCacheTests" DataCacheTest.tests
 #if __GLASGOW_HASKELL__ >= 801
-  , TestLabel "AdoTests" AdoTests.tests
+  , TestLabel "AdoTests" $ AdoTests.tests False
 #endif
 #if __GLASGOW_HASKELL__ >= 710
   , TestLabel "ProfileTests" ProfileTests.tests
 #endif
   , TestLabel "MemoizationTests" MemoizationTests.tests
   , TestLabel "BadDataSourceTests" TestBadDataSource.tests
+  , TestLabel "FullyAsyncTest" FullyAsyncTest.tests
   ]
