@@ -161,6 +161,14 @@ withEnvTest = TestLabel "withEnvTest" $ TestCase $ do
       _ <- countAardvarks "aaa"
       env userEnv
   assertBool "withEnv3" b
+  e <- initEnv (stateSet exstate stateEmpty) False
+  b <- runHaxl e $
+    withEnv e { userEnv = True } $ do
+      memo ("yyy" :: Text) $ do
+        _ <- countAardvarks "aaa"
+        _ <- countAardvarks "bbb"
+        env userEnv
+  assertBool "withEnv4" b
 
 
 tests = TestList

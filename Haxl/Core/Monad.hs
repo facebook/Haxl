@@ -266,7 +266,8 @@ newtype GenHaxl u a = GenHaxl
 data JobList u
  = JobNil
  | forall a . JobCons
-     (IO (Result u a))          -- See Note [make withEnv work] below.
+     (Env u)          -- See Note [make withEnv work] below.
+     (GenHaxl u a)
      {-# UNPACK #-} !(IVar u a)
      (JobList u)
 
@@ -275,19 +276,19 @@ data JobList u
 -- The withEnv operation supplies a new Env for the scope of a GenHaxl
 -- computation.  The problem is that the computation might be split
 -- into pieces and put onto various JobLists, so we have to be sure to
--- use the correct Env when we execute the pieces. Therefore when
--- putting a continuation onto a JobList we apply it to the Env first,
--- which is why the JobList contains (IO (Result u a)) rather than
--- (GenHaxl u a).
+-- use the correct Env when we execute the pieces. Furthermore, if one
+-- of these pieces blocks and gets run again later, we must ensure to
+-- restart it with the correct Env.  So we stash the Env along with
+-- the continuation in the JobList.
 
 appendJobList :: JobList u -> JobList u -> JobList u
 appendJobList JobNil c = c
 appendJobList c JobNil = c
-appendJobList (JobCons a b c) d = JobCons a b (appendJobList c d)
+appendJobList (JobCons a b c d) e = JobCons a b c $! appendJobList d e
 
 lengthJobList :: JobList u -> Int
 lengthJobList JobNil = 0
-lengthJobList (JobCons _ _ j) = 1 + lengthJobList j
+lengthJobList (JobCons _ _ _ j) = 1 + lengthJobList j
 
 
 -- -----------------------------------------------------------------------------
@@ -341,11 +342,11 @@ putIVar (IVar ref) a Env{..} = do
     IVarFull{} -> error "putIVar: multiple put"
 
 {-# INLINE addJob #-}
-addJob :: IO (Result u b) -> IVar u b -> IVar u a -> IO ()
-addJob !haxl !resultIVar (IVar !ref) =
+addJob :: Env u -> GenHaxl u b -> IVar u b -> IVar u a -> IO ()
+addJob env !haxl !resultIVar (IVar !ref) =
   modifyIORef' ref $ \contents ->
     case contents of
-      IVarEmpty list -> IVarEmpty ((JobCons haxl) resultIVar list)
+      IVarEmpty list -> IVarEmpty (JobCons env haxl resultIVar list)
       _ -> addJobPanic
 
 addJobPanic :: forall a . a
@@ -540,7 +541,7 @@ instance Applicative (GenHaxl u) where
                             (Cont (toHaxl fcont <*> toHaxl acont)))
                 else do
                   i <- newIVar
-                  addJob (unHaxl (toHaxl fcont) env) i ivar1
+                  addJob env (toHaxl fcont) i ivar1
                   let cont = acont :>>= \a -> getIVarApply i a
                   return (Blocked ivar2 cont)
 
@@ -579,8 +580,8 @@ runHaxl env@Env{..} haxl = do
   result@(IVar resultRef) <- newIVar -- where to put the final result
   let
     -- Run a job, and put its result in the given IVar
-    schedule :: Env u -> JobList u -> IO (Result u b) -> IVar u b -> IO ()
-    schedule env@Env{..} rq run (IVar !ref) = do
+    schedule :: Env u -> JobList u -> GenHaxl u b -> IVar u b -> IO ()
+    schedule env@Env{..} rq (GenHaxl run) (IVar !ref) = do
       ifTrace flags 3 $ printf "schedule: %d\n" (1 + lengthJobList rq)
       let {-# INLINE result #-}
           result r = do
@@ -603,7 +604,10 @@ runHaxl env@Env{..} haxl = do
                        JobNil -> return ()
                        _ -> modifyIORef' runQueueRef (appendJobList rq)
                    else reschedule env (appendJobList haxls rq)
-      r <- Exception.try run
+      r <-
+        if report flags >= 4          -- withLabel unfolded
+          then Exception.try $ collectProfileData profLabel run env
+          else Exception.try $ run env
       case r of
         Left e -> do
           rethrowAsyncExceptions e
@@ -611,7 +615,7 @@ runHaxl env@Env{..} haxl = do
         Right (Done a) -> result (Ok a)
         Right (Throw ex) -> result (ThrowHaxl ex)
         Right (Blocked ivar fn) -> do
-          addJob (unHaxl (toHaxl fn) env) (IVar ref) ivar
+          addJob env (toHaxl fn) (IVar ref) ivar
           reschedule env rq
 
     -- Here we have a choice:
@@ -636,11 +640,11 @@ runHaxl env@Env{..} haxl = do
           rq <- readIORef runQueueRef
           case rq of
             JobNil -> emptyRunQueue env
-            JobCons a b c -> do
+            JobCons env' a b c -> do
               writeIORef runQueueRef JobNil
-              schedule env c a b
-        JobCons a b c ->
-          schedule env c a b
+              schedule env' c a b
+        JobCons env' a b c ->
+          schedule env' c a b
 
     emptyRunQueue :: Env u -> IO ()
     emptyRunQueue env@Env{..} = do
@@ -710,7 +714,7 @@ runHaxl env@Env{..} haxl = do
       emptyRunQueue env
 
   --
-  schedule env JobNil (unHaxl haxl env) result
+  schedule env JobNil haxl result
   r <- readIORef resultRef
   case r of
     IVarEmpty _ -> throwIO (CriticalError "runHaxl: missing result")
@@ -1607,7 +1611,7 @@ execMemoNow cont ivar = GenHaxl $ \env -> do
       putIVar ivar (ThrowHaxl ex) env
       return (Throw ex)
     Right (Blocked ivar' cont) -> do
-      addJob (unHaxl (toHaxl cont) env) ivar ivar'
+      addJob env (toHaxl cont) ivar ivar'
       return (Blocked ivar (Cont (getIVar ivar)))
 
 -- -----------------------------------------------------------------------------
