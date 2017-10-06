@@ -28,11 +28,16 @@ import Unsafe.Coerce
 --
 #if __GLASGOW_HASKELL__ >= 708
 class Typeable f => StateKey (f :: * -> *) where
-  data State f
 #else
 class Typeable1 f => StateKey (f :: * -> *) where
-  data State f
 #endif
+  data State f
+
+  -- | We default this to typeOf1, but if f is itself a complex type that is
+  -- already applied to some paramaters, we want to be able to use the same
+  -- state by using typeOf2, etc
+  getStateType :: State f -> TypeRep
+  getStateType _ = typeOf1 (undefined :: f a)
 
 -- | The 'StateStore' maps a 'StateKey' to the 'State' for that type.
 newtype StateStore = StateStore (Map TypeRep StateStoreData)
@@ -48,7 +53,7 @@ stateEmpty = StateStore Map.empty
 -- | Inserts a `State` in the `StateStore` container.
 stateSet :: forall f . StateKey f => State f -> StateStore -> StateStore
 stateSet st (StateStore m) =
-  StateStore (Map.insert (getType st) (StateStoreData st) m)
+  StateStore (Map.insert (getStateType st) (StateStoreData st) m)
 
 -- | Retrieves a `State` from the `StateStore` container.
 stateGet :: forall r . StateKey r => StateStore -> Maybe (State r)
@@ -56,14 +61,10 @@ stateGet (StateStore m) =
   case Map.lookup ty m of
      Nothing -> Nothing
      Just (StateStoreData st)
-       | getType st == ty  -> Just (unsafeCoerce st)
-       | otherwise         -> Nothing
+       | getStateType st == ty -> Just (unsafeCoerce st)
+       | otherwise             -> Nothing
           -- the dynamic type check here should be unnecessary, but if
           -- there are bugs in `Typeable` or `Map` then we'll get an
           -- error instead of a crash.  The overhead is a few percent.
  where
-  ty = getType (undefined :: State r)
-
--- | Returns the 'TypeRep' associated with a particular 'State'.
-getType :: forall f . StateKey f => State f -> TypeRep
-getType _ = typeOf1 (undefined :: f a)
+  ty = getStateType (undefined :: State r)
