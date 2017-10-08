@@ -121,8 +121,6 @@ import GHC.Stack
 import Unsafe.Coerce
 
 #if __GLASGOW_HASKELL__ < 710
-import Data.Int (Int64)
-
 getAllocationCounter :: IO Int64
 getAllocationCounter = return 0
 
@@ -1235,6 +1233,7 @@ performFetches n env@Env{flags=f, statsRef=sref} jobs = do
         Nothing ->
           return (FetchToDo reqs (SyncFetch (mapM_ (setError e))))
          where
+           e :: ShowP req => req a -> DataSourceError
            e req = DataSourceError $ "data source not initialized: " <> dsName
                   <> ": "
                   <> Text.pack (showp req)
