@@ -1,3 +1,10 @@
+-- Copyright (c) 2014-present, Facebook, Inc.
+-- All rights reserved.
+--
+-- This source code is distributed under the terms of a BSD license,
+-- found in the LICENSE file. An additional grant of patent rights can
+-- be found in the PATENTS file.
+
 {-# LANGUAGE CPP #-}
 module MemoizationTests (tests) where
 
@@ -9,7 +16,7 @@ import Data.IORef
 import Test.HUnit
 
 import Haxl.Core
-import Haxl.Core.Monad
+import Haxl.Core.Monad (unsafeLiftIO)
 
 import ExampleDataSource
 
