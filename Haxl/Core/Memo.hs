@@ -127,10 +127,10 @@ memoize a = newMemoWith a >>= runMemo
 --
 -- e.g.:
 --
--- allFriends :: [Int] -> GenHaxl u [Int]
--- allFriends ids = do
---   memoizedFriendsOf <- memoize1 friendsOf
---   concat <$> mapM memoizeFriendsOf ids
+-- > allFriends :: [Int] -> GenHaxl u [Int]
+-- > allFriends ids = do
+-- >   memoizedFriendsOf <- memoize1 friendsOf
+-- >   concat <$> mapM memoizeFriendsOf ids
 --
 -- The above implementation will not invoke the underlying @friendsOf@
 -- repeatedly for duplicate values in @ids@.
