@@ -29,6 +29,7 @@
 --
 -- Most users should import "Haxl.Core" instead of importing this
 -- module directly.
+--
 module Haxl.Core.Exception (
 
   HaxlException(..),

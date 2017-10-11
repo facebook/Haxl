@@ -16,284 +16,57 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-#if __GLASGOW_HASKELL >= 800
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-#else
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
-#endif
 
--- | Base types used by all of Haxl. Most users should import
--- "Haxl.Core" instead of importing this module directly.
-module Haxl.Core.Types (
-
-  -- * Tracing flags
-  Flags(..),
-  defaultFlags,
-  ifTrace,
-  ifReport,
-  ifProfiling,
-
-  -- * Statistics
-  Stats(..),
-  FetchStats(..),
-  Microseconds,
-  Timestamp,
-  getTimestamp,
-  emptyStats,
-  numRounds,
-  numFetches,
-  ppStats,
-  ppFetchStats,
-  Profile,
-  emptyProfile,
-  profile,
-  ProfileLabel,
-  ProfileData(..),
-  emptyProfileData,
-  AllocCount,
-  MemoHitCount,
-
+-- |
+-- The 'DataSource' class and related types and functions.  This
+-- module is provided for access to Haxl internals only; most users
+-- should import "Haxl.Core" instead.
+--
+module Haxl.Core.DataSource
+  (
   -- * Data fetching
-  DataSource(..),
-  DataSourceName(..),
-  Request,
-  BlockedFetch(..),
-  PerformFetch(..),
-  SchedulerHint(..),
-
-  -- * DataCache
-  DataCache(..),
-  SubCache(..),
-  emptyDataCache,
+    DataSource(..)
+  , DataSourceName(..)
+  , Request
+  , BlockedFetch(..)
+  , PerformFetch(..)
+  , SchedulerHint(..)
 
   -- * Result variables
-  ResultVar(..),
-  mkResultVar,
-  putFailure,
-  putResult,
-  putSuccess,
+  , ResultVar(..)
+  , mkResultVar
+  , putFailure
+  , putResult
+  , putSuccess
 
   -- * Default fetch implementations
-  asyncFetch, asyncFetchWithDispatch,
-  asyncFetchAcquireRelease,
-  stubFetch,
-  syncFetch,
+  , asyncFetch, asyncFetchWithDispatch
+  , asyncFetchAcquireRelease
+  , stubFetch
+  , syncFetch
 
   -- * Utilities
-  except,
-  setError,
-
+  , except
+  , setError
   ) where
 
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative
 #endif
 import Control.Exception
-import Control.Monad
-import Data.Aeson
-import Data.Int
 import Data.Hashable
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import Data.HashSet (HashSet)
-import qualified Data.HashSet as HashSet
-import Data.List (intercalate)
 import Data.Text (Text)
-import qualified Data.Text as Text
-import Data.Time.Clock.POSIX
+#if __GLASGOW_HASKELL__ >= 802
+import Data.Typeable
+#else
 import Data.Typeable.Internal
-import Text.Printf
+#endif
 
 import Haxl.Core.Exception
-#if __GLASGOW_HASKELL__ < 708
-import Haxl.Core.Util (tryReadMVar)
-#endif
+import Haxl.Core.Flags
 import Haxl.Core.ShowP
 import Haxl.Core.StateStore
 
--- ---------------------------------------------------------------------------
--- Flags
-
--- | Flags that control the operation of the engine.
-data Flags = Flags
-  { trace :: {-# UNPACK #-} !Int
-    -- ^ Tracing level (0 = quiet, 3 = very verbose).
-  , report :: {-# UNPACK #-} !Int
-    -- ^ Report level:
-    --    * 0 = quiet
-    --    * 1 = quiet (legacy, this used to do something)
-    --    * 2 = data fetch stats & errors
-    --    * 3 = (same as 2, this used to enable errors)
-    --    * 4 = profiling
-    --    * 5 = log stack traces of dataFetch calls
-  , caching :: {-# UNPACK #-} !Int
-    -- ^ Non-zero if caching is enabled.  If caching is disabled, then
-    -- we still do batching and de-duplication, but do not cache
-    -- results.
-  }
-
-defaultFlags :: Flags
-defaultFlags = Flags
-  { trace = 0
-  , report = 0
-  , caching = 1
-  }
-
-#if __GLASGOW_HASKELL__ >= 710
-#define FUNMONAD Monad m
-#else
-#define FUNMONAD (Functor m, Monad m)
-#endif
-
--- | Runs an action if the tracing level is above the given threshold.
-ifTrace :: FUNMONAD => Flags -> Int -> m a -> m ()
-ifTrace flags i = when (trace flags >= i) . void
-
--- | Runs an action if the report level is above the given threshold.
-ifReport :: FUNMONAD => Flags -> Int -> m a -> m ()
-ifReport flags i = when (report flags >= i) . void
-
-ifProfiling :: FUNMONAD => Flags -> m a -> m ()
-ifProfiling flags = when (report flags >= 4) . void
-
-#undef FUNMONAD
-
--- ---------------------------------------------------------------------------
--- Measuring time
-
-type Microseconds = Int64
-type Timestamp = Microseconds -- since an epoch
-
-getTimestamp :: IO Timestamp
-getTimestamp = do
-  t <- getPOSIXTime -- for now, TODO better
-  return (round (t * 1000000))
-
--- ---------------------------------------------------------------------------
--- Stats
-
--- | Stats that we collect along the way.
-newtype Stats = Stats [FetchStats]
-  deriving (Show, ToJSON)
-
--- | Pretty-print Stats.
-ppStats :: Stats -> String
-ppStats (Stats rss) =
-  intercalate "\n"
-     [ "Fetch: " ++ show i ++ " - " ++ ppFetchStats rs
-     | (i, rs) <- zip [(1::Int)..] (filter isFetchStats (reverse rss)) ]
- where
-  isFetchStats FetchStats{} = True
-  isFetchStats _ = False
-
--- | Maps data source name to the number of requests made in that round.
--- The map only contains entries for sources that made requests in that
--- round.
-data FetchStats
-    -- | Timing stats for a (batched) data fetch
-  = FetchStats
-    { fetchDataSource :: Text
-    , fetchBatchSize :: {-# UNPACK #-} !Int
-    , fetchStart :: !Timestamp          -- TODO should be something else
-    , fetchDuration :: {-# UNPACK #-} !Microseconds
-    , fetchSpace :: {-# UNPACK #-} !Int64
-    , fetchFailures :: {-# UNPACK #-} !Int
-    }
-
-    -- | The stack trace of a call to 'dataFetch'.  These are collected
-    -- only when profiling and reportLevel is 5 or greater.
-  | FetchCall
-    { fetchReq :: String
-    , fetchStack :: [String]
-    }
-  deriving (Show)
-
--- | Pretty-print RoundStats.
-ppFetchStats :: FetchStats -> String
-ppFetchStats FetchStats{..} =
-  printf "%s: %d fetches (%.2fms, %d bytes, %d failures)"
-    (Text.unpack fetchDataSource) fetchBatchSize
-    (fromIntegral fetchDuration / 1000 :: Double)  fetchSpace fetchFailures
-ppFetchStats (FetchCall r ss) = show r ++ '\n':show ss
-
-instance ToJSON FetchStats where
-  toJSON FetchStats{..} = object
-    [ "datasource" .= fetchDataSource
-    , "fetches" .= fetchBatchSize
-    , "start" .= fetchStart
-    , "duration" .= fetchDuration
-    , "allocation" .= fetchSpace
-    , "failures" .= fetchFailures
-    ]
-  toJSON (FetchCall req strs) = object
-    [ "request" .= req
-    , "stack" .= strs
-    ]
-
-emptyStats :: Stats
-emptyStats = Stats []
-
-numRounds :: Stats -> Int
-numRounds (Stats rs) = length rs        -- not really
-
-numFetches :: Stats -> Int
-numFetches (Stats rs) = sum [ fetchBatchSize | FetchStats{..} <- rs ]
-
-
--- ---------------------------------------------------------------------------
--- Profiling
-
-type ProfileLabel = Text
-type AllocCount = Int64
-type MemoHitCount = Int64
-
-newtype Profile = Profile
-  { profile      :: HashMap ProfileLabel ProfileData
-     -- ^ Data on individual labels.
-  }
-
-emptyProfile :: Profile
-emptyProfile = Profile HashMap.empty
-
-data ProfileData = ProfileData
-  { profileAllocs :: {-# UNPACK #-} !AllocCount
-     -- ^ allocations made by this label
-  , profileDeps :: HashSet ProfileLabel
-     -- ^ labels that this label depends on
-  , profileFetches :: HashMap Text Int
-     -- ^ map from datasource name => fetch count
-  , profileMemoHits :: {-# UNPACK #-} !MemoHitCount
-    -- ^ number of hits to memoized computation at this label
-  }
-  deriving Show
-
-emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 HashSet.empty HashMap.empty 0
-
--- ---------------------------------------------------------------------------
--- DataCache
-
--- | A @'DataCache' res@ maps things of type @req a@ to @res a@, for
--- any @req@ and @a@ provided @req a@ is an instance of 'Typeable'. In
--- practice @req a@ will be a request type parameterised by its result.
---
-newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
-
--- | The implementation is a two-level map: the outer level maps the
--- types of requests to 'SubCache', which maps actual requests to their
--- results.  So each 'SubCache' contains requests of the same type.
--- This works well because we only have to store the dictionaries for
--- 'Hashable' and 'Eq' once per request type.
---
-data SubCache res =
-  forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
-       SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
-       -- NB. the inner HashMap is strict, to avoid building up
-       -- a chain of thunks during repeated insertions.
-
--- | A new, empty 'DataCache'.
-emptyDataCache :: DataCache res
-emptyDataCache = DataCache HashMap.empty
 
 -- ---------------------------------------------------------------------------
 -- DataSource class

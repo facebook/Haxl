@@ -31,6 +31,7 @@ module Haxl.Core (
   dumpCacheAsHaskell,
 
   -- ** Memoization
+  newMemo, newMemoWith, prepareMemo, runMemo,
   memo, memoize, memoize1, memoize2,
   memoFingerprint, MemoFingerprintKey(..),
 
@@ -90,9 +91,15 @@ module Haxl.Core (
   module Haxl.Core.Exception
   ) where
 
+import Haxl.Core.DataSource
+import Haxl.Core.Flags
 import Haxl.Core.Memo
 import Haxl.Core.Monad hiding (unsafeLiftIO {- Ask nicely to get this! -})
-import Haxl.Core.Types
+import Haxl.Core.Monad.Fetch
+import Haxl.Core.Monad.Parallel
+import Haxl.Core.Monad.Profile
+import Haxl.Core.Monad.Schedule
+import Haxl.Core.Stats
 import Haxl.Core.Exception
 import Haxl.Core.ShowP (ShowP(..))
 import Haxl.Core.StateStore

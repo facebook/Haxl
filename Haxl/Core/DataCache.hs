@@ -11,9 +11,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- | A cache mapping data requests to their results.  This module is
+-- |
+-- A cache mapping data requests to their results.  This module is
 -- provided for access to Haxl internals only; most users should not
 -- need to import it.
+--
 module Haxl.Core.DataCache
   ( DataCache(..)
   , SubCache(..)
@@ -29,6 +31,7 @@ import Control.Exception
 import Data.Hashable
 import Prelude hiding (lookup)
 import Unsafe.Coerce
+import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.Typeable
 import Data.Maybe
@@ -36,7 +39,31 @@ import Data.Maybe
 import Control.Applicative ((<$>))
 #endif
 
-import Haxl.Core.Types
+-- ---------------------------------------------------------------------------
+-- DataCache
+
+-- | A @'DataCache' res@ maps things of type @req a@ to @res a@, for
+-- any @req@ and @a@ provided @req a@ is an instance of 'Typeable'. In
+-- practice @req a@ will be a request type parameterised by its result.
+--
+newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
+
+-- | The implementation is a two-level map: the outer level maps the
+-- types of requests to 'SubCache', which maps actual requests to their
+-- results.  So each 'SubCache' contains requests of the same type.
+-- This works well because we only have to store the dictionaries for
+-- 'Hashable' and 'Eq' once per request type.
+--
+data SubCache res =
+  forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
+       SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
+       -- NB. the inner HashMap is strict, to avoid building up
+       -- a chain of thunks during repeated insertions.
+
+-- | A new, empty 'DataCache'.
+emptyDataCache :: DataCache res
+emptyDataCache = DataCache HashMap.empty
+
 
 -- | Inserts a request-result pair into the 'DataCache'.
 insert

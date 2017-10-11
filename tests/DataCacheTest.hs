@@ -1,10 +1,20 @@
-{-# LANGUAGE StandaloneDeriving, GADTs, DeriveDataTypeable #-}
+-- Copyright (c) 2014-present, Facebook, Inc.
+-- All rights reserved.
+--
+-- This source code is distributed under the terms of a BSD license,
+-- found in the LICENSE file. An additional grant of patent rights can
+-- be found in the PATENTS file.
+
+{-# LANGUAGE CPP, StandaloneDeriving, GADTs, DeriveDataTypeable #-}
 module DataCacheTest (tests, newResult, takeResult) where
 
 import Haxl.Core.DataCache as DataCache
 import Haxl.Core.Monad
 import Haxl.Core
 
+#if __GLASGOW_HASKELL__ < 710
+import Control.Applicative
+#endif
 import Control.Exception
 import Data.Hashable
 import Data.Traversable
