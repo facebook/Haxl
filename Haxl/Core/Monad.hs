@@ -606,7 +606,7 @@ runHaxl env@Env{..} haxl = do
                    else reschedule env (appendJobList haxls rq)
       r <-
         if report flags >= 4          -- withLabel unfolded
-          then Exception.try $ collectProfileData profLabel run env
+          then Exception.try $ profileCont run env
           else Exception.try $ run env
       case r of
         Left e -> do
@@ -842,6 +842,37 @@ incrementMemoHitCounterFor lbl p =
 incrementMemoHitCounter :: ProfileData -> ProfileData
 incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
 
+
+-- Like collectProfileData, but intended to be run from the scheduler.
+--
+-- * doesn't add a dependency (the original withLabel did this)
+--
+-- * doesn't subtract allocs from the caller (we're evaluating this
+--   cont from the top level, so we don't need this)
+--
+-- * doesn't wrap a Blocked continuation in withLabel (the scheduler
+--   will call profileCont the next time this cont runs)
+--
+profileCont
+  :: (Env u -> IO (Result u a))
+  -> Env u
+  -> IO (Result u a)
+profileCont m env = do
+  a0 <- getAllocationCounter
+  r <- m env
+  a1 <- getAllocationCounter
+  let
+    allocs = a0 - a1
+    newEntry = emptyProfileData { profileAllocs = allocs }
+    updEntry _ old = old { profileAllocs = profileAllocs old + allocs }
+  modifyIORef' (profRef env) $ \ p ->
+    p { profile =
+         HashMap.insertWith updEntry (profLabel env) newEntry $
+         profile p }
+  -- So we do not count the allocation overhead of modifyProfileData
+  setAllocationCounter a1
+  return r
+{-# INLINE profileCont #-}
 
 -- -----------------------------------------------------------------------------
 -- Exceptions
