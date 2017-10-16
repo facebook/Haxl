@@ -97,7 +97,8 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
-import Data.List (intercalate)
+import Data.List (intercalate, maximumBy, minimumBy)
+import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Time.Clock.POSIX
@@ -180,11 +181,30 @@ newtype Stats = Stats [FetchStats]
 ppStats :: Stats -> String
 ppStats (Stats rss) =
   intercalate "\n"
-     [ "Fetch: " ++ show i ++ " - " ++ ppFetchStats rs
-     | (i, rs) <- zip [(1::Int)..] (filter isFetchStats (reverse rss)) ]
- where
-  isFetchStats FetchStats{} = True
-  isFetchStats _ = False
+    [ "["
+    ++ [
+      if fetchWasRunning rs
+          (minStartTime + (t - 1) * usPerDash)
+          (minStartTime + t * usPerDash)
+        then '*'
+        else '-'
+      | t <- [1..numDashes]
+      ]
+    ++ "] " ++ show i ++ " - " ++ ppFetchStats rs
+    | (i, rs) <- zip [(1::Int)..] validFetchStats ]
+  where
+    isFetchStats FetchStats{} = True
+    isFetchStats _ = False
+    validFetchStats = filter isFetchStats (reverse rss)
+    numDashes = 50
+    minStartTime = fetchStart $ minimumBy (comparing fetchStart) validFetchStats
+    lastFs = maximumBy (comparing (\fs -> fetchStart fs + fetchDuration fs))
+      validFetchStats
+    usPerDash = (fetchStart lastFs + fetchDuration lastFs - minStartTime)
+      `div` numDashes
+    fetchWasRunning :: FetchStats -> Timestamp -> Timestamp -> Bool
+    fetchWasRunning fs t1 t2 =
+      (fetchStart fs + fetchDuration fs) >= t1 && fetchStart fs < t2
 
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
