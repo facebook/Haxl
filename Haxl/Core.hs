@@ -9,90 +9,100 @@
 -- engine.
 --
 module Haxl.Core (
-  -- * The monad and operations
-  GenHaxl (..), runHaxl,
+    -- * The monad and operations
+    GenHaxl (..), runHaxl
 
-  -- ** Env
-  Env(..), Caches, caches,
-  -- *** Operations in the monad
-  env, withEnv, withLabel,
-  -- *** Building the Env
-  initEnvWithData, initEnv, emptyEnv,
-  -- *** Building the StateStore
-  StateStore, stateGet, stateSet, stateEmpty,
+    -- ** Env
+  , Env(..), Caches, caches
+    -- *** Operations in the monad
+  , env, withEnv, withLabel
+    -- *** Building the Env
+  , initEnvWithData, initEnv, emptyEnv
+    -- *** Building the StateStore
+  , StateStore, stateGet, stateSet, stateEmpty
 
-  -- ** Exceptions
-  throw, catch, catchIf, try, tryToHaxlException,
+    -- ** Exceptions
+  , throw, catch, catchIf, try, tryToHaxlException
 
-  -- ** Data fetching and caching
-  dataFetch, uncachedRequest,
-  cacheRequest, cacheResult, cacheResultWithShow,
-  cachedComputation, preCacheComputation,
-  dumpCacheAsHaskell,
+    -- ** Data fetching and caching
+  , dataFetch, uncachedRequest
+  , cacheRequest, cacheResult, cacheResultWithShow
+  , cachedComputation, preCacheComputation
+  , dumpCacheAsHaskell
 
-  -- ** Memoization
-  memo, memoize, memoize1, memoize2,
-  memoFingerprint, MemoFingerprintKey(..),
+    -- ** Memoization
+  , newMemo, newMemoWith, prepareMemo, runMemo
+  , memo, memoize, memoize1, memoize2
+  , memoFingerprint, MemoFingerprintKey(..)
 
-  -- ** Conditionals
-  pAnd, pOr,
+    -- ** Conditionals
+  , pAnd, pOr
 
-  -- ** Statistics
-  Stats(..),
-  FetchStats(..),
-  Microseconds,
-  emptyStats,
-  numRounds,
-  numFetches,
-  ppStats,
-  ppFetchStats,
-  Profile,
-  emptyProfile,
-  profile,
-  ProfileLabel,
-  ProfileData(..),
-  emptyProfileData,
+    -- ** Statistics
+  , Stats(..)
+  , FetchStats(..)
+  , Microseconds
+  , Timestamp
+  , emptyStats
+  , numRounds
+  , numFetches
+  , ppStats
+  , ppFetchStats
+  , Profile
+  , emptyProfile
+  , profile
+  , ProfileLabel
+  , ProfileData(..)
+  , emptyProfileData
+  , AllocCount
+  , MemoHitCount
 
-  -- ** Tracing flags
-  Flags(..),
-  defaultFlags,
-  ifTrace,
-  ifReport,
-  ifProfiling,
+    -- ** Tracing flags
+  , Flags(..)
+  , defaultFlags
+  , ifTrace
+  , ifReport
+  , ifProfiling
 
-  -- * Building data sources
-  DataSource(..),
-  ShowP(..),
-  DataSourceName(..),
-  Request,
-  BlockedFetch(..),
-  PerformFetch(..),
-  StateKey(..),
-  SchedulerHint(..),
+    -- * Building data sources
+  , DataSource(..)
+  , ShowP(..)
+  , DataSourceName(..)
+  , Request
+  , BlockedFetch(..)
+  , PerformFetch(..)
+  , StateKey(..)
+  , SchedulerHint(..)
 
-  -- ** Result variables
-  ResultVar(..),
-  mkResultVar,
-  putFailure,
-  putResult,
-  putSuccess,
+    -- ** Result variables
+  , ResultVar(..)
+  , mkResultVar
+  , putFailure
+  , putResult
+  , putSuccess
 
-  -- ** Default fetch implementations
-  asyncFetch, asyncFetchWithDispatch, asyncFetchAcquireRelease,
-  stubFetch,
-  syncFetch,
+    -- ** Default fetch implementations
+  , asyncFetch, asyncFetchWithDispatch, asyncFetchAcquireRelease
+  , stubFetch
+  , syncFetch
 
-  -- ** Utilities
-  except,
-  setError,
+    -- ** Utilities
+  , except
+  , setError
 
-  -- * Exceptions
-  module Haxl.Core.Exception
+    -- * Exceptions
+  , module Haxl.Core.Exception
   ) where
 
+import Haxl.Core.DataSource
+import Haxl.Core.Flags
 import Haxl.Core.Memo
 import Haxl.Core.Monad hiding (unsafeLiftIO {- Ask nicely to get this! -})
-import Haxl.Core.Types
+import Haxl.Core.Fetch
+import Haxl.Core.Parallel
+import Haxl.Core.Profile
+import Haxl.Core.Run
+import Haxl.Core.Stats
 import Haxl.Core.Exception
 import Haxl.Core.ShowP (ShowP(..))
 import Haxl.Core.StateStore

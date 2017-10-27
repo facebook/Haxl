@@ -18,12 +18,17 @@
 --
 -- This module is provided for access to Haxl internals only; most
 -- users should not need to import it.
-module Haxl.Core.RequestStore (
-    BlockedFetches(..), RequestStore,
-    isEmpty, noRequests, addRequest, contents
+--
+module Haxl.Core.RequestStore
+  ( BlockedFetches(..)
+  , RequestStore
+  , isEmpty
+  , noRequests
+  , addRequest
+  , contents
   ) where
 
-import Haxl.Core.Types
+import Haxl.Core.DataSource
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Typeable

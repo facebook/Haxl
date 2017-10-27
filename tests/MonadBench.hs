@@ -7,11 +7,6 @@
 
 -- | Benchmarking tool for core performance characteristics of the Haxl monad.
 {-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL >= 800
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-#else
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
-#endif
 module MonadBench (main) where
 
 import Control.Monad
@@ -25,7 +20,7 @@ import Text.Printf
 import Haxl.Prelude as Haxl
 import Prelude()
 
-import Haxl.Core.Monad (newMemoWith, runMemo)
+import Haxl.Core.Memo (newMemoWith, runMemo)
 
 import Haxl.Core
 
