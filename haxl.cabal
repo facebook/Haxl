@@ -79,6 +79,7 @@ library
     Haxl.Core.StateStore,
     Haxl.Core.Stats,
     Haxl.Prelude
+    Haxl.DataSource.ConcurrentIO
 
   other-modules:
     Haxl.Core.Util

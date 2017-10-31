@@ -5,7 +5,6 @@
 -- found in the LICENSE file. An additional grant of patent rights can
 -- be found in the PATENTS file.
 
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -15,11 +14,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module SleepDataSource (
-    -- * initialise the state
-    initGlobalState,
-
-    -- * requests for this data source
-    SleepReq(..),
     sleep,
   ) where
 
@@ -27,40 +21,26 @@ import Haxl.Prelude
 import Prelude ()
 
 import Haxl.Core
+import Haxl.DataSource.ConcurrentIO
 
-import Control.Monad hiding (mapM_)
-import Data.Typeable
-import Data.Hashable
 import Control.Concurrent
+import Data.Hashable
+import Data.Typeable
 
 sleep :: Int -> GenHaxl u Int
 sleep n = dataFetch (Sleep n)
 
-data SleepReq a where
-  Sleep :: Int -> SleepReq Int
-  deriving Typeable -- requests must be Typeable
+data Sleep deriving Typeable
+instance ConcurrentIO Sleep where
+  data ConcurrentIOReq Sleep a where
+    Sleep :: Int -> ConcurrentIOReq Sleep Int
 
-deriving instance Eq (SleepReq a)
-deriving instance Show (SleepReq a)
+  performIO (Sleep n) = threadDelay (n*1000) >> return n
 
-instance ShowP SleepReq where showp = show
+deriving instance Eq (ConcurrentIOReq Sleep a)
+deriving instance Show (ConcurrentIOReq Sleep a)
 
-instance Hashable (SleepReq a) where
-   hashWithSalt s (Sleep n) = hashWithSalt s n
+instance ShowP (ConcurrentIOReq Sleep) where showp = show
 
-instance StateKey SleepReq where
-  data State SleepReq = ExampleState {}
-
-instance DataSourceName SleepReq where
-  dataSourceName _ = "SleepDataSource"
-
-instance DataSource u SleepReq where
-  fetch  _state _flags _user = BackgroundFetch $ mapM_ fetch1
-  schedulerHint _ = SubmitImmediately
-
-initGlobalState :: IO (State SleepReq)
-initGlobalState = return ExampleState { }
-
-fetch1 :: BlockedFetch SleepReq -> IO ()
-fetch1 (BlockedFetch (Sleep n) rvar) =
-  void $ forkFinally (threadDelay (n*1000) >> return n) (putResult rvar)
+instance Hashable (ConcurrentIOReq Sleep a) where
+  hashWithSalt s (Sleep n) = hashWithSalt s n

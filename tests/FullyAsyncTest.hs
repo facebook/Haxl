@@ -11,6 +11,7 @@ import Haxl.Prelude as Haxl
 import Prelude()
 
 import SleepDataSource
+import Haxl.DataSource.ConcurrentIO
 
 import Haxl.Core
 import Test.HUnit
@@ -21,7 +22,7 @@ tests :: Test
 tests = sleepTest
 
 testEnv = do
-  st <- SleepDataSource.initGlobalState
+  st <- mkConcurrentIOState
   env <- initEnv (stateSet st stateEmpty) ()
   return env { flags = (flags env) { report = 2 } }
 

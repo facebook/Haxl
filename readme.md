@@ -22,6 +22,11 @@ There are two Haskell packages here:
 To use Haxl in your own application, you will likely need to build one or more
 *data sources*: the thin layer between Haxl and the data that you want
 to fetch, be it a database, a web API, a cloud service, or whatever.
+
+There is a generic datasource in "Haxl.DataSource.ConcurrentIO" that
+can be used for performing arbitrary IO operations concurrently, given
+a bit of boilerplate to define the IO operations you want to perform.
+
 The `haxl-facebook` package shows how we might build a Haxl data
 source based on the existing `fb` package for talking to the Facebook
 Graph API.
