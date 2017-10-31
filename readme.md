@@ -41,6 +41,10 @@ Graph API.
    through building an example data source that queries the Facebook
    Graph API concurrently.
 
+ * [Fun with Haxl (part 1)](https://simonmar.github.io/posts/2015-10-20-Fun-With-Haxl-1.html)
+   Walks through using Haxl from scratch for a simple SQLite-backed
+   blog engine.
+
  * [The N+1 Selects Problem](example/sql/readme.md) explains how Haxl
    can address a common performance problem with SQL queries by
    automatically batching multiple queries into a single query,
