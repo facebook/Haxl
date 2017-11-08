@@ -1,3 +1,24 @@
+# Changes in version 2.0.0.0
+
+  * Completely rewritten internals to support arbitrarily overlapping
+    I/O and computation.  Haxl no longer runs batches of I/O in
+    "rounds", waiting for all the I/O to complete before resuming the
+    computation. In Haxl 2, we can spawn I/O that returns results in
+    the background and computation fragments are resumed when the
+    values they depend on are available.  See
+    `tests/FullyAsyncTest.hs` for an example.
+
+  * A new `PerformFetch` constructor supports the new concurrency
+    features: `BackgroundFetch`. The data source is expected to call
+    `putResult` in the background on each `BlockedFetch` when its
+    result is ready.
+
+  * There is a generic `DataSource` implementation in
+    `Haxl.DataSource.ConcurrentIO` for performing each I/O operation
+    in a separate thread.
+
+  * Lots of cleanup and refactoring of the APIs.
+
 # Changes in version 0.5.1.0
 
   * 'pAnd' and 'pOr' were added
