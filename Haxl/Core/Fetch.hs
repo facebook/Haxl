@@ -199,15 +199,23 @@ dataFetchWithInsert showFn insertFn req =
 -- are done in a safe way - that is, not mixed with reads that might
 -- conflict in the same Haxl computation.
 --
-uncachedRequest :: (DataSource u r, Show (r a)) => r a -> GenHaxl u a
-uncachedRequest req = GenHaxl $ \Env{..} -> do
-  cr <- newIVar
-  let done r = atomically $ do
-        cs <- readTVar completions
-        writeTVar completions (CompleteReq r cr : cs)
-  modifyIORef' reqStoreRef $ \bs ->
-    addRequest (BlockedFetch req (mkResultVar done)) bs
-  return $ Blocked cr (Cont (getIVar cr))
+-- if we are recording or running a test, we fallback to using dataFetch
+-- This allows us to store the request in the cache when recording, which
+-- allows a transparent run afterwards. Without this, the test would try to
+-- call the datasource during testing and that would be an exception.
+uncachedRequest :: (DataSource u r, Request r a) => r a -> GenHaxl u a
+uncachedRequest req = do
+  isRecordingFlag <- env (recording . flags)
+  if isRecordingFlag /= 0
+    then dataFetch req
+    else GenHaxl $ \Env{..} -> do
+      cr <- newIVar
+      let done r = atomically $ do
+            cs <- readTVar completions
+            writeTVar completions (CompleteReq r cr : cs)
+      modifyIORef' reqStoreRef $ \bs ->
+        addRequest (BlockedFetch req (mkResultVar done)) bs
+      return $ Blocked cr (Cont (getIVar cr))
 
 
 -- | Transparently provides caching. Useful for datasources that can

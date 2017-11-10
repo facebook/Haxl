@@ -43,6 +43,9 @@ data Flags = Flags
     -- ^ Non-zero if caching is enabled.  If caching is disabled, then
     -- we still do batching and de-duplication, but do not cache
     -- results.
+  , recording :: {-# UNPACK #-} !Int
+    -- ^ Non-zero if recording is enabled. This allows tests to record cache
+    -- calls for datasources by making uncachedRequest behave like dataFetch
   }
 
 defaultFlags :: Flags
@@ -50,6 +53,7 @@ defaultFlags = Flags
   { trace = 0
   , report = 0
   , caching = 1
+  , recording = 0
   }
 
 #if __GLASGOW_HASKELL__ >= 710
