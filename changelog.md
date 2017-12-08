@@ -19,6 +19,8 @@
 
   * Lots of cleanup and refactoring of the APIs.
 
+  * License changed from BSD+PATENTS to plain BSD3.
+
 # Changes in version 0.5.1.0
 
   * 'pAnd' and 'pOr' were added

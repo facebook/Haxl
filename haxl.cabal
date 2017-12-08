@@ -4,8 +4,8 @@ synopsis:            A Haskell library for efficient, concurrent,
                      and concise data access.
 homepage:            https://github.com/facebook/Haxl
 bug-reports:         https://github.com/facebook/Haxl/issues
-license:             OtherLicense
-license-files:       LICENSE,PATENTS
+license:             BSD3
+license-files:       LICENSE
 author:              Facebook, Inc.
 maintainer:          The Haxl Team <haxl-team@fb.com>
 copyright:           Copyright (c) 2014-present, Facebook, Inc.
@@ -36,7 +36,6 @@ description:
 
 extra-source-files:
   readme.md
-  PATENTS
   tests/LoadCache.txt
   changelog.md
 
