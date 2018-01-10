@@ -145,6 +145,7 @@ test-suite test
     TestExampleDataSource
     TestTypes
     TestUtils
+    WorkDataSource
 
   type:
     exitcode-stdio-1.0

@@ -34,6 +34,7 @@ module Haxl.Core.DataSource
   , mkResultVar
   , putFailure
   , putResult
+  , putResultFromChildThread
   , putSuccess
 
   -- * Default fetch implementations
@@ -182,9 +183,12 @@ data BlockedFetch r = forall a. BlockedFetch (r a) (ResultVar a)
 -- ResultVar
 
 -- | A sink for the result of a data fetch in 'BlockedFetch'
-newtype ResultVar a = ResultVar (Either SomeException a -> IO ())
+newtype ResultVar a = ResultVar (Either SomeException a -> Bool -> IO ())
+  -- The Bool here is True if result was returned by a child thread,
+  -- rather than the main runHaxl thread.  see Note [tracking allocation in
+  -- child threads]
 
-mkResultVar :: (Either SomeException a -> IO ()) -> ResultVar a
+mkResultVar :: (Either SomeException a -> Bool -> IO ()) -> ResultVar a
 mkResultVar = ResultVar
 
 putFailure :: (Exception e) => ResultVar a -> e -> IO ()
@@ -194,7 +198,26 @@ putSuccess :: ResultVar a -> a -> IO ()
 putSuccess r = putResult r . Right
 
 putResult :: ResultVar a -> Either SomeException a -> IO ()
-putResult (ResultVar io) res =  io res
+putResult (ResultVar io) res =  io res False
+
+-- | Like `putResult`, but used to get correct accounting when work is
+-- being done in child threads.  This is particularly important for
+-- data sources that are using 'BackgroundFetch', The allocation performed
+-- in the child thread up to this point will be propagated back to the
+-- thread that called 'runHaxl'.
+--
+-- Note: if you're doing multiple 'putResult' calls in the same thread
+-- ensure that only the /last/ one is 'putResultFromChildThread'.  If you
+-- make multiple 'putResultFromChildThread' calls, the allocation will be
+-- counted multiple times.
+--
+-- If you are reusing a thread for multiple fetches, you should call
+-- @System.Mem.setAllocationCounter 0@ after
+-- 'putResultFromChildThread', so that allocation is not counted
+-- multiple times.
+putResultFromChildThread :: ResultVar a -> Either SomeException a -> IO ()
+putResultFromChildThread (ResultVar io) res =  io res True
+  -- see Note [tracking allocation in child threads]
 
 -- | Function for easily setting a fetch to a particular exception
 setError :: (Exception e) => (forall a. r a -> e) -> BlockedFetch r -> IO ()

@@ -116,6 +116,7 @@ import Control.Applicative hiding (Const)
 import Prelude hiding (catch)
 #endif
 import Data.IORef
+import Data.Int
 import GHC.Exts (IsString(..))
 import Text.PrettyPrint hiding ((<>))
 import Text.Printf
@@ -399,10 +400,51 @@ eitherToResult (Left e) = ThrowHaxl e
 -- data source is just to add these to a queue ('completions') using
 -- 'putResult'; the scheduler collects them from the queue and unblocks
 -- the relevant computations.
-data CompleteReq u =
-  forall a . CompleteReq (Either SomeException a)
-                         !(IVar u a)  -- IVar because the result is cached
+data CompleteReq u
+  = forall a . CompleteReq
+      (Either SomeException a)
+      !(IVar u a)  -- IVar because the result is cached
+      {-# UNPACK #-} !Int64 -- see Note [tracking allocation in child threads]
 
+
+{- Note [tracking allocation in child threads]
+
+For a BackgroundFetch, we might be doing some of the work in a
+separate thread, but we want to make sure that the parent thread gets
+charged for the allocation, so that allocation limits still work.
+
+The design is a bit tricky here.  We want to track the allocation
+accurately but without adding much overhead.
+
+The best way to propagate the allocation back from the child thread is
+through putResult.  If we had some other method, we would also need a
+way to synchronise it with the main runHaxl loop; the advantage of
+putResult is that this is already a synchronisation method, because
+runHaxl is waiting for the result of the dataFetch.
+
+(slight wrinkle here: runHaxl might not wait for the result of the
+dataFetch in the case where we do some speculative execution in
+pAnd/pOr)
+
+We need a special version of putResult for child threads
+(putResultFromChildThread), because we don't want to propagate any
+allocation from the runHaxl thread back to itself and count it twice.
+
+We also want to capture the allocation as late as possible, so that we
+count everything.  For that reason, we pass a Bool down from putResult
+into the function in the ResultVar, and it reads the allocation
+counter as the last thing before adding the result to the completions
+TVar.
+
+The other problem to consider is how to capture the allocation when
+the child thread is doing multiple putResults.  Our solution here is
+to ensure that the *last* one is a putResultFromChildThread, so it
+captures all the allocation from everything leading up to it.
+
+Why not reset the counter each time, so we could do multiple
+putResultFromChildThreads?  Because the child thread might be using an
+allocation limit itself, and changing the counter would mess it up.
+-}
 
 -- -----------------------------------------------------------------------------
 -- Result

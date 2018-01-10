@@ -13,6 +13,8 @@ import Haxl.Prelude
 
 import Haxl.Core
 import Haxl.Core.Monad
+import Haxl.Core.Stats
+import Haxl.DataSource.ConcurrentIO
 
 import Test.HUnit
 
@@ -24,6 +26,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 
 import TestUtils
+import WorkDataSource
 
 mkProfilingEnv = do
   env <- makeTestEnv False
@@ -73,7 +76,24 @@ exceptions = do
   assertBool "inner label added" $
     HashMap.member "inner" profData
 
+
+-- Test that we correctly attribute work done in child threads when
+-- using BackgroundFetch to the caller of runHaxl. This is important
+-- for correct accounting when relying on allocation limits.
+threadAlloc :: Assertion
+threadAlloc = do
+  st <- mkConcurrentIOState
+  env <- initEnv (stateSet st stateEmpty) ()
+  a0 <- getAllocationCounter
+  _x <- runHaxl env $ work 100000
+  a1 <- getAllocationCounter
+  assertBool "threadAlloc" $ (a0 - a1) > 1000000
+    -- the result was 16MB on 64-bit, or around 25KB if we miss the allocs
+    -- in the child thread.
+
+
 tests = TestList
   [ TestLabel "collectsdata" $ TestCase collectsdata
   , TestLabel "exceptions" $ TestCase exceptions
+  , TestLabel "threads" $ TestCase threadAlloc
   ]

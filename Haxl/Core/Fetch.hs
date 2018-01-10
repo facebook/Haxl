@@ -101,11 +101,9 @@ cachedWithInsert showFn insertFn Env{..} req = do
   let
     doFetch = do
       ivar <- newIVar
-      let done r = atomically $ do
-            cs <- readTVar completions
-            writeTVar completions (CompleteReq r ivar : cs)
+      let !rvar = stdResultVar ivar completions
       writeIORef cacheRef $! insertFn req ivar cache
-      return (Uncached (mkResultVar done) ivar)
+      return (Uncached rvar ivar)
   case DataCache.lookup req cache of
     Nothing -> doFetch
     Just (IVar cr) -> do
@@ -118,6 +116,24 @@ cachedWithInsert showFn insertFn Env{..} req = do
             ThrowHaxl _ -> "Cached error: " ++ showFn req
             Ok _ -> "Cached request: " ++ showFn req
           return (Cached r)
+
+
+-- | Make a ResultVar with the standard function for sending a CompletionReq
+-- to the scheduler.
+stdResultVar :: IVar u a -> TVar [CompleteReq u] -> ResultVar a
+stdResultVar ivar completions = mkResultVar $ \r isChildThread -> do
+  allocs <- if isChildThread
+    then
+      -- In a child thread, return the current allocation counter too,
+      -- for correct tracking of allocation.
+      getAllocationCounter
+    else
+      return 0
+  atomically $ do
+    cs <- readTVar completions
+    writeTVar completions (CompleteReq r ivar allocs : cs)
+{-# INLINE stdResultVar #-}
+
 
 -- | Record the call stack for a data fetch in the Stats.  Only useful
 -- when profiling.
@@ -208,13 +224,11 @@ uncachedRequest req = do
   if isRecordingFlag /= 0
     then dataFetch req
     else GenHaxl $ \Env{..} -> do
-      cr <- newIVar
-      let done r = atomically $ do
-            cs <- readTVar completions
-            writeTVar completions (CompleteReq r cr : cs)
+      ivar <- newIVar
+      let !rvar = stdResultVar ivar completions
       modifyIORef' reqStoreRef $ \bs ->
-        addRequest (BlockedFetch req (mkResultVar done)) bs
-      return $ Blocked cr (Cont (getIVar cr))
+        addRequest (BlockedFetch req rvar) bs
+      return $ Blocked ivar (Cont (getIVar ivar))
 
 
 -- | Transparently provides caching. Useful for datasources that can
@@ -450,13 +464,13 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
       return (t0,t, fromIntegral $ prevAlloc - postAlloc, a)
 
     addTimer t0 (BlockedFetch req (ResultVar fn)) =
-      BlockedFetch req $ ResultVar $ \result -> do
+      BlockedFetch req $ ResultVar $ \result isChildThread -> do
         t1 <- getTimestamp
         updateFetchStats t0 (t1 - t0)
           0 -- allocs: we can't measure this easily for BackgroundFetch
           1 -- batch size: we don't know if this is a batch or not
           (if isLeft result then 1 else 0) -- failures
-        fn result
+        fn result isChildThread
 
     updateFetchStats
       :: Timestamp -> Microseconds -> Int64 -> Int -> Int -> IO ()
@@ -471,9 +485,9 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
 
     addFailureCount :: IORef Int -> BlockedFetch r -> BlockedFetch r
     addFailureCount ref (BlockedFetch req (ResultVar fn)) =
-      BlockedFetch req $ ResultVar $ \result -> do
+      BlockedFetch req $ ResultVar $ \result isChildThread -> do
         when (isLeft result) $ atomicModifyIORef' ref (\r -> (r+1,()))
-        fn result
+        fn result isChildThread
 
 wrapFetchInTrace
   :: Int

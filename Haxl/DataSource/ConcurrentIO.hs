@@ -80,4 +80,4 @@ instance
   fetch _state _flags _u = BackgroundFetch $ \bfs -> do
     forM_ bfs $ \(BlockedFetch req rv) ->
       mask $ \unmask ->
-        forkFinally (unmask (performIO req)) (putResult rv)
+        forkFinally (unmask (performIO req)) (putResultFromChildThread rv)

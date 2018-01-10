@@ -29,6 +29,7 @@ import Haxl.Core.Monad
 import Haxl.Core.Fetch
 import Haxl.Core.Profile
 import Haxl.Core.RequestStore as RequestStore
+import Haxl.Core.Stats
 
 
 -- -----------------------------------------------------------------------------
@@ -148,7 +149,11 @@ runHaxl env@Env{..} haxl = do
         [] -> return JobNil
         _ -> do
           ifTrace flags 3 $ printf "%d complete\n" (length comps)
-          let getComplete (CompleteReq a (IVar cr)) = do
+          let
+              getComplete (CompleteReq a (IVar cr) allocs) = do
+                when (allocs < 0) $ do
+                  cur <- getAllocationCounter
+                  setAllocationCounter (cur + allocs)
                 r <- readIORef cr
                 case r of
                   IVarFull _ -> do
