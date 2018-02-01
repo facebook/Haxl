@@ -25,13 +25,13 @@ import Control.Exception
 import Data.Hashable
 import Data.Typeable
 
-work :: Int -> GenHaxl u Int
+work :: Integer -> GenHaxl u Integer
 work n = dataFetch (Work n)
 
 data Work deriving Typeable
 instance ConcurrentIO Work where
   data ConcurrentIOReq Work a where
-    Work :: Int -> ConcurrentIOReq Work Int
+    Work :: Integer -> ConcurrentIOReq Work Integer
 
   performIO (Work n) = evaluate (sum [1..n]) >> return n
 
