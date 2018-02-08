@@ -48,6 +48,9 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Int
 import Data.List (intercalate, maximumBy, minimumBy)
+#if __GLASGOW_HASKELL__ < 710
+import Data.Monoid
+#endif
 import Data.Ord (comparing)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
