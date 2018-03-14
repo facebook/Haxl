@@ -98,10 +98,10 @@ class (DataSourceName req, StateKey req, ShowP req) => DataSource u req where
   schedulerHint :: u -> SchedulerHint req
   schedulerHint _ = TryToBatch
 
-class DataSourceName req where
+class DataSourceName (req :: * -> *) where
   -- | The name of this 'DataSource', used in tracing and stats. Must
   -- take a dummy request.
-  dataSourceName :: req a -> Text
+  dataSourceName :: Proxy req -> Text
 
 -- The 'ShowP' class is a workaround for the fact that we can't write
 -- @'Show' (req a)@ as a superclass of 'DataSource', without also

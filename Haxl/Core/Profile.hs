@@ -6,6 +6,8 @@
 
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Implementation of lightweight profiling.  Most users should
 -- import "Haxl.Core" instead.
@@ -138,14 +140,14 @@ incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
 
 {-# NOINLINE addProfileFetch #-}
 addProfileFetch
-  :: (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
+  :: forall r u a . (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
   => Env u -> r a -> IO ()
-addProfileFetch env req = do
+addProfileFetch env _req = do
   c <- getAllocationCounter
   modifyIORef' (profRef env) $ \ p ->
     let
       dsName :: Text
-      dsName = dataSourceName req
+      dsName = dataSourceName (Proxy :: Proxy r)
 
       upd :: ProfileData -> ProfileData
       upd d = d { profileFetches =

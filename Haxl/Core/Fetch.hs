@@ -322,11 +322,8 @@ performFetches n env@Env{flags=f, statsRef=sref} jobs = do
 
   let
     roundstats =
-      [ (dataSourceName (getReq reqs), length reqs)
-      | BlockedFetches reqs <- jobs ]
-      where
-      getReq :: [BlockedFetch r] -> r a
-      getReq = undefined
+      [ (dataSourceName (Proxy :: Proxy r), length reqs)
+      | BlockedFetches (reqs :: [BlockedFetch r]) <- jobs ]
 
   ifTrace f 1 $
     printf "Batch data fetch (%s)\n" $
@@ -353,12 +350,11 @@ performFetches n env@Env{flags=f, statsRef=sref} jobs = do
             $ (if report f >= 2
                 then wrapFetchInStats sref dsName (length reqs)
                 else id)
-            $ wrapFetchInTrace i (length reqs)
-               (dataSourceName (undefined :: r a))
+            $ wrapFetchInTrace i (length reqs) dsName
             $ wrapFetchInCatch reqs
             $ fetch state f (userEnv env)
       where
-        req :: r a; req = undefined; dsName = dataSourceName req
+        dsName = dataSourceName (Proxy :: Proxy r)
 
   fetches <- zipWithM applyFetch [n..] jobs
 
