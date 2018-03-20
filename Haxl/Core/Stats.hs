@@ -79,7 +79,7 @@ getTimestamp = do
 
 -- | Stats that we collect along the way.
 newtype Stats = Stats [FetchStats]
-  deriving (Show, ToJSON, Monoid)
+  deriving (Show, ToJSON, Monoid, Semigroup)
 
 -- | Pretty-print Stats.
 ppStats :: Stats -> String
