@@ -23,7 +23,6 @@ module Haxl.Core.Profile
 
 import Data.IORef
 import Data.Hashable
-import Data.Monoid
 import Data.Text (Text)
 import Data.Typeable
 import qualified Data.HashMap.Strict as HashMap

@@ -37,7 +37,6 @@ import Data.Hashable
 import Data.IORef
 import Data.Int
 import Data.List
-import Data.Monoid
 import Data.Typeable
 import Data.Text (Text)
 import qualified Data.Text as Text
