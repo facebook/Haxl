@@ -51,6 +51,7 @@ import Data.List (intercalate, maximumBy, minimumBy)
 #if __GLASGOW_HASKELL__ < 710
 import Data.Monoid
 #endif
+import Data.Semigroup (Semigroup)
 import Data.Ord (comparing)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
@@ -79,7 +80,7 @@ getTimestamp = do
 
 -- | Stats that we collect along the way.
 newtype Stats = Stats [FetchStats]
-  deriving (Show, ToJSON, Monoid)
+  deriving (Show, ToJSON, Semigroup, Monoid)
 
 -- | Pretty-print Stats.
 ppStats :: Stats -> String
