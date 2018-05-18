@@ -13,6 +13,7 @@ module FB.DataSource
 
 import Network.HTTP.Conduit
 import Facebook as FB
+import Control.Monad
 import Control.Monad.Trans.Resource
 import Data.Hashable
 import Data.Typeable
@@ -36,7 +37,7 @@ data FacebookReq a where
 deriving instance Eq (FacebookReq a)
 deriving instance Show (FacebookReq a)
 
-instance Show1 FacebookReq where show1 = show
+instance ShowP FacebookReq where showp = show
 
 instance Hashable (FacebookReq a) where
   hashWithSalt s (GetObject (Id id))      = hashWithSalt s (0::Int,id)
@@ -49,7 +50,7 @@ instance StateKey FacebookReq where
        { credentials :: Credentials
        , userAccessToken :: UserAccessToken
        , manager :: Manager
-       , numThreads :: Int
+       , semaphore :: QSem
        }
 
 instance DataSourceName FacebookReq where
@@ -66,51 +67,48 @@ initGlobalState
 
 initGlobalState threads creds token = do
   manager <- newManager tlsManagerSettings
+  sem <- newQSem threads
   return FacebookState
     { credentials = creds
     , manager = manager
     , userAccessToken = token
-    , numThreads = threads
+    , semaphore = sem
     }
 
 facebookFetch
   :: State FacebookReq
   -> Flags
   -> u
-  -> [BlockedFetch FacebookReq]
-  -> PerformFetch
+  -> PerformFetch FacebookReq
 
-facebookFetch FacebookState{..} _flags _user bfs =
-  AsyncFetch $ \inner -> do
-    sem <- newQSem numThreads
-    asyncs <- mapM (fetchAsync credentials manager userAccessToken sem) bfs
-    inner
-    mapM_ wait asyncs
+facebookFetch FacebookState{..} _flags _user =
+  BackgroundFetch $
+    mapM_ (fetchAsync credentials manager userAccessToken semaphore)
 
 fetchAsync
   :: Credentials -> Manager -> UserAccessToken -> QSem
   -> BlockedFetch FacebookReq
-  -> IO (Async ())
+  -> IO ()
 fetchAsync creds manager tok sem (BlockedFetch req rvar) =
-  async $ bracket_ (waitQSem sem) (signalQSem sem) $ do
+  void $ async $ bracket_ (waitQSem sem) (signalQSem sem) $ do
     e <- Control.Exception.try $
-           runResourceT $ runFacebookT creds manager $ fetchReq tok req
+           runResourceT $ runFacebookT creds manager $ fetchFBReq tok req
     case e of
       Left ex -> putFailure rvar (ex :: SomeException)
       Right a -> putSuccess rvar a
 
-fetchReq
+fetchFBReq
   :: UserAccessToken
   -> FacebookReq a
   -> FacebookT Auth (ResourceT IO) a
 
-fetchReq tok (GetObject (Id id)) =
+fetchFBReq tok (GetObject (Id id)) =
   getObject ("/" <> id) [] (Just tok)
 
-fetchReq _tok (GetUser id) =
+fetchFBReq _tok (GetUser id) =
   getUser id [] Nothing
 
-fetchReq tok (GetUserFriends id) = do
+fetchFBReq tok (GetUserFriends id) = do
   f <- getUserFriends id [] tok
   source <- fetchAllNextPages f
   source $$ consume

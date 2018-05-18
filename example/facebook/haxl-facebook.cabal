@@ -1,5 +1,5 @@
 name:                haxl-facebook
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            An example Haxl data source for accessing the
                      Facebook Graph API
 homepage:            https://github.com/facebook/Haxl
@@ -15,20 +15,20 @@ cabal-version:       >=1.10
 
 library
   build-depends:
-    base >=4.6 && <4.8,
-    aeson >=0.6 && <0.8,
-    fb >=1.0 && <1.1,
-    http-conduit >=2.1 && <2.2,
-    resourcet >=1.1 && <1.2,
-    text >=0.11 && <1.2,
-    transformers >=0.3 && <0.5,
+    base == 4.*,
+    aeson >= 0.6 && < 1.4,
+    fb >=1.0 && <1.3,
+    http-conduit >=2.1 && <2.4,
+    resourcet >=1.1 && <1.3,
+    text >= 1.2.1.0 && < 1.3,
+    transformers >=0.3 && <0.6,
     hashable >=1.2 && <1.3,
-    data-default >=0.5 && <0.6,
-    http-client-tls >=0.2 && <0.3,
-    time >=1.4 && <1.5,
-    conduit >=1.1 && <1.2,
-    async >=2.0 && <2.1,
-    haxl == 0.1.*
+    data-default >=0.5 && <0.8,
+    http-client-tls >=0.2 && <0.4,
+    time >= 1.4 && < 1.9,
+    conduit >=1.1 && <1.4,
+    async >=2.0 && <2.3,
+    haxl == 2.0.*
 
   other-extensions:
     OverloadedStrings,
@@ -57,23 +57,22 @@ test-suite test
     TestFB.hs
 
   build-depends:
-    base >=4.6 && <4.8,
-    aeson >=0.6 && <0.8,
-    fb >=1.0 && <1.1,
-    http-conduit >=2.1 && <2.2,
-    resourcet >=1.1 && <1.2,
-    text >=0.11 && <1.2,
-    transformers >=0.3 && <0.5,
+    base == 4.*,
+    aeson >= 0.6 && < 1.4,
+    fb >=1.0 && <1.3,
+    http-conduit >=2.1 && <2.4,
+    resourcet >=1.1 && <1.3,
+    text >= 1.2.1.0 && < 1.3,
+    transformers >=0.3 && <0.6,
     hashable >=1.2 && <1.3,
-    data-default >=0.5 && <0.6,
-    http-client-tls >=0.2 && <0.3,
-    time >=1.4 && <1.5,
-    conduit >=1.1 && <1.2,
-    async >=2.0 && <2.1,
-    haxl == 0.1.*,
+    data-default >=0.5 && <0.8,
+    http-client-tls >=0.2 && <0.4,
+    time >= 1.4 && < 1.9,
+    conduit >=1.1 && <1.4,
+    async >=2.0 && <2.3,
+    haxl == 2.0.*,
     unordered-containers == 0.2.*,
-    time == 1.4.*,
-    vector >= 0.10 && < 0.11
+    vector >= 0.10 && < 0.13
 
   default-language:
     Haskell2010
