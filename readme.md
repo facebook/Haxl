@@ -7,7 +7,8 @@ as databases or web-based services. Haxl can automatically
 
  * batch multiple requests to the same data source,
  * request data from multiple data sources concurrently,
- * cache previous requests.
+ * cache previous requests,
+ * memoize computations.
 
 Having all this handled for you behind the scenes means that your
 data-fetching code can be much cleaner and clearer than it would
@@ -37,7 +38,7 @@ Graph API.
    explains how Haxl came about at Facebook, and discusses our
    particular use case.
 
- * [An example Facebook data source](example/facebook/readme.md) walks
+ * [An example Facebook data source](https://github.com/facebook/Haxl/blob/master/example/facebook/readme.md) walks
    through building an example data source that queries the Facebook
    Graph API concurrently.
 
@@ -45,7 +46,7 @@ Graph API.
    Walks through using Haxl from scratch for a simple SQLite-backed
    blog engine.
 
- * [The N+1 Selects Problem](example/sql/readme.md) explains how Haxl
+ * [The N+1 Selects Problem](https://github.com/facebook/Haxl/blob/master/example/facebook/readme.md) explains how Haxl
    can address a common performance problem with SQL queries by
    automatically batching multiple queries into a single query,
    without the programmer having to specify this behavior.
