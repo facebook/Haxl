@@ -46,7 +46,7 @@ Graph API.
    Walks through using Haxl from scratch for a simple SQLite-backed
    blog engine.
 
- * [The N+1 Selects Problem](https://github.com/facebook/Haxl/blob/master/example/facebook/readme.md) explains how Haxl
+ * [The N+1 Selects Problem](https://github.com/facebook/Haxl/blob/master/example/sql/readme.md) explains how Haxl
    can address a common performance problem with SQL queries by
    automatically batching multiple queries into a single query,
    without the programmer having to specify this behavior.
