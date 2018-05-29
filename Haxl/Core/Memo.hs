@@ -30,6 +30,7 @@ module Haxl.Core.Memo
   , memoFingerprint
   , MemoFingerprintKey(..)
   , memoize, memoize1, memoize2
+  , memoUnique
 
     -- * Local memoization
   , newMemo
@@ -302,11 +303,23 @@ memo
   => k -> GenHaxl u a -> GenHaxl u a
 memo key = cachedComputation (MemoKey key)
 
-{-# RULES "memo/Text"
-  memo = memoText :: (Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
+{-# RULES
+"memo/Text" memo = memoText :: (Typeable a) =>
+            Text -> GenHaxl u a -> GenHaxl u a
+"memoUnique/Text" memoUnique = memoUniqueText :: (Typeable a) =>
+                  MemoFingerprintKey a -> Text -> GenHaxl u a -> GenHaxl u a
  #-}
 
 {-# NOINLINE memo #-}
+
+-- | Memoize a computation using its location and a Fingerprint. This ensures
+-- uniqueness across computations.
+memoUnique
+  :: (Typeable a, Typeable k, Hashable k, Eq k)
+  => MemoFingerprintKey a -> k -> GenHaxl u a -> GenHaxl u a
+memoUnique fp key = memo (fp, key)
+
+{-# NOINLINE memoUnique #-}
 
 data MemoKey k a where
   MemoKey :: (Typeable k, Hashable k, Eq k) => k -> MemoKey k a
@@ -331,6 +344,16 @@ instance Hashable (MemoTextKey a) where
 
 memoText :: (Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
 memoText key = withLabel key . cachedComputation (MemoText key)
+
+-- For Text keys, memoUnique is automatically rewritten to memoUniqueText,
+-- due to the RULES pragma above.
+memoUniqueText
+  :: (Typeable a)
+  => MemoFingerprintKey a
+  -> Text
+  -> GenHaxl u a
+  -> GenHaxl u a
+memoUniqueText fp key = withLabel key . memo (fp, key)
 
 -- | A memo key derived from a 128-bit MD5 hash.  Do not use this directly,
 -- it is for use by automatically-generated memoization.

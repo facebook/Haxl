@@ -31,7 +31,7 @@ module Haxl.Core (
 
     -- ** Memoization
   , newMemo, newMemoWith, prepareMemo, runMemo
-  , memo, memoize, memoize1, memoize2
+  , memo, memoUnique, memoize, memoize1, memoize2
   , memoFingerprint, MemoFingerprintKey(..)
 
     -- ** Conditionals
