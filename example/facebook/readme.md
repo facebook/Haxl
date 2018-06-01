@@ -54,7 +54,7 @@ There is some necessary boilerplate that goes along with a data source:
 deriving instance Eq (FacebookReq a)
 deriving instance Show (FacebookReq a)
 
-instance Show1 FacebookReq where show1 = show
+instance ShowP FacebookReq where showp = show
 
 instance Hashable (FacebookReq a) where
   hashWithSalt s (GetObject (Id id))      = hashWithSalt s (0::Int,id)
@@ -77,7 +77,7 @@ instance StateKey FacebookReq where
        { credentials :: Credentials
        , userAccessToken :: UserAccessToken
        , manager :: Manager
-       , numThreads :: Int
+       , semaphore :: QSem
        }
 ```
 
@@ -92,8 +92,8 @@ Facebook data source, we need several things:
  * The `Manager`; this comes from `Network.HTTP.Client`, and it
    maintains a set of open connections to `HTTP` servers.
 
- * `numThreads`, which says how many threads we will use in our data
-   source to fetch data concurrently.
+ * `semaphore`, which will be used to limit the number of concurrent
+   requests we make to the Facebook API.
 
 A data source should provide a way to initialize its state.  To
 initialize our data source we need to create a new `Manager`, and
@@ -108,11 +108,12 @@ initGlobalState
 
 initGlobalState threads creds token = do
   manager <- newManager tlsManagerSettings
+  sem <- newQSem threads
   return FacebookState
     { credentials = creds
     , manager = manager
     , userAccessToken = token
-    , numThreads = threads
+    , semaphore = sem
     }
 ```
 
@@ -141,17 +142,15 @@ facebookFetch
   :: State FacebookReq
   -> Flags
   -> u
-  -> [BlockedFetch FacebookReq]
-  -> PerformFetch
+  -> PerformFetch FacebookReq
 ```
 
 That is, it takes the current state for this data source, some `Flags`
 defined by Haxl, a "user state" (in our case we won't need any user
-state, so this is `()`), and a list of `BlockedFetch`es which tell us
-which requests need to be fetched.
+state, so this is `()`), and returns a value of type `PerformFetch`
+which will tell Haxl how to fetch requests for this datasource.
 
-We're going to fetch these requests concurrently, using `numThreads`
-threads.  We'll use the
+We're going to fetch these requests concurrently.  We'll use the
 [async](http://hackage.haskell.org/package/async) package together
 with a `QSem` to control the degree of concurrency.
 
@@ -159,45 +158,39 @@ The fetch function returns a value of type `PerformFetch`, defined like this:
 
 ```haskell
 data PerformFetch
-  = SyncFetch  (IO ())
-  | AsyncFetch (IO () -> IO ())
+  = SyncFetch  ([BlockedFetch req] -> IO ())
+  | AsyncFetch ([BlockedFetch req] -> IO () -> IO ())
+  | BackgroundFetch ([BlockedFetch req] -> IO ())
+  | FutureFetch ([BlockedFetch req] -> IO (IO ()))
 ```
 
-A data source can fetch either synchronously, indicated by
-`SyncFetch`, or asynchronously, indicated by `AsyncFetch`.  The
-argument to `AsyncFetch` is a function that takes an `IO` operation to
-perform *while the data is being fetched*.  The Haxl framework takes
-care of nesting all the data fetches correctly, overlapping as many
-`AsyncFetch`es as possible.  Obviously asynchronous data sources are
-preferable, although performance is only negatively affected if there
-are two or more synchronous data sources.
+A data source can fetch either synchronously (`SyncFetch`),
+asynchronously (`AsyncFetch` or `FutureFetch`), or in the background
+(`BackgroundFetch`).  The `BackgroundFetch` option is the most
+flexible because it allows fetching to proceed concurrently with
+computation.
 
-In the case of the Facebook data source, we will implement an
-asynchronous data source, so we return `AsyncFetch`.
+The argument to `Background` is a function that takes the list of
+`BlockedRequest`s, and should return immediately while the requests
+are performed in the background.
 
 ```haskell
-facebookFetch FacebookState{..} _flags _user bfs =
-  AsyncFetch $ \inner -> do
-    sem <- newQSem numThreads
-    asyncs <- mapM (fetchAsync credentials manager userAccessToken sem) bfs
-    inner
-    mapM_ wait asyncs
+facebookFetch FacebookState{..} _flags _user =
+  BackgroundFetch $
+    mapM_ (fetchAsync credentials manager userAccessToken semaphore)
 ```
 
-There are three phases: first we issue all the requests, then perform
-the `inner` IO operation, and finally we wait for the results.
-
-Issuing a request is done by `fetchAsync`:
+Issuing each request is done by `fetchAsync`:
 
 ```haskell
 fetchAsync
   :: Credentials -> Manager -> UserAccessToken -> QSem
   -> BlockedFetch FacebookReq
-  -> IO (Async ())
+  -> IO ()
 fetchAsync creds manager tok sem (BlockedFetch req rvar) =
-  async $ bracket_ (waitQSem sem) (signalQSem sem) $ do
+  void $ async $ bracket_ (waitQSem sem) (signalQSem sem) $ do
     e <- Control.Exception.try $
-           runResourceT $ runFacebookT creds manager $ fetchReq tok req
+           runResourceT $ runFacebookT creds manager $ fetchFBReq tok req
     case e of
       Left ex -> putFailure rvar (ex :: SomeException)
       Right a -> putSuccess rvar a
@@ -206,7 +199,8 @@ fetchAsync creds manager tok sem (BlockedFetch req rvar) =
 This function does several things:
 
  * it does everything in `async`, which performs the operation
-   asynchronously and returns a handle that can be waited on later.
+   asynchronously and returns a handle that can be waited on later (we
+   ignore the returned handle here).
 
  * it obtains a token from the `QSem`, which is used to control the
    degree of concurrency,
@@ -218,25 +212,25 @@ This function does several things:
    exception will then be propagated by the Haxl framework to the
    computation that initiated the fetch.
 
- * it calls `fetchReq` to perform the actual fetch.
+ * it calls `fetchFBReq` to perform the actual fetch.
 
-`fetchReq` is the application-specific code to fetch data from
+`fetchFBReq` is the application-specific code to fetch data from
 Facebook.  Here is where we would add support for more types of
 request:
 
 ```haskell
-fetchReq
+fetchFBReq
   :: UserAccessToken
   -> FacebookReq a
   -> FacebookT Auth (ResourceT IO) a
 
-fetchReq tok (GetObject (Id id)) =
+fetchFBReq tok (GetObject (Id id)) =
   getObject ("/" <> id) [] (Just tok)
 
-fetchReq _tok (GetUser id) =
+fetchFBReq _tok (GetUser id) =
   getUser id [] Nothing
 
-fetchReq tok (GetUserFriends id) = do
+fetchFBReq tok (GetUserFriends id) = do
   f <- getUserFriends id [] tok
   source <- fetchAllNextPages f
   source $$ consume
