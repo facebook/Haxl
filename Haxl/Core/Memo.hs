@@ -33,6 +33,7 @@ module Haxl.Core.Memo
   , memoUnique
 
     -- * Local memoization
+  , MemoVar
   , newMemo
   , newMemoWith
   , prepareMemo
