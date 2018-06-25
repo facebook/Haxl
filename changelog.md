@@ -1,3 +1,10 @@
+# Changes in version 2.0.1.0
+
+  * Exported MemoVar from Haxl.Core.Memo
+  * Updated the facebook example
+  * Fixed some links in the documentation
+  * Bump some version bounds
+
 # Changes in version 2.0.0.0
 
   * Completely rewritten internals to support arbitrarily overlapping
