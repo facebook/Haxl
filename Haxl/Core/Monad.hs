@@ -758,8 +758,13 @@ dumpCacheAsHaskellFn fnName fnType = do
     cache <- readIORef ref
     showCache cache readIVar
 
+  let
+    body = if null entries
+      then text "return ()"
+      else vcat (map mk_cr (concatMap snd entries))
+
   return $ show $
     text (fnName ++ " :: " ++ fnType) $$
     text (fnName ++ " = do") $$
-      nest 2 (vcat (map mk_cr (concatMap snd entries))) $$
+      nest 2 body $$
     text "" -- final newline
