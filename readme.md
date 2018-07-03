@@ -18,7 +18,7 @@ give some examples of how this works in the pages linked below.
 There are two Haskell packages here:
 
  * `haxl`: The core Haxl framework
- * `haxl-facebook` (in [example/facebook](example/facebook)): An (incomplete) example data source for accessing the Facebook Graph API
+ * `haxl-facebook` (in [https://github.com/facebook/Haxl/tree/master/example/facebook](example/facebook)): An (incomplete) example data source for accessing the Facebook Graph API
 
 To use Haxl in your own application, you will likely need to build one or more
 *data sources*: the thin layer between Haxl and the data that you want
@@ -54,6 +54,6 @@ Graph API.
  * [Haxl Documentation](http://hackage.haskell.org/package/haxl) on
    Hackage.
 
- * [There is no Fork: An Abstraction for Efficient, Concurrent, and Concise Data Access](http://community.haskell.org/~simonmar/papers/haxl-icfp14.pdf), our paper on Haxl, accepted for publication at ICFP'14.
+ * [There is no Fork: An Abstraction for Efficient, Concurrent, and Concise Data Access](http://simonmar.github.io/bib/papers/haxl-icfp14.pdf), our paper on Haxl, accepted for publication at ICFP'14.
 
 [![Build Status](https://travis-ci.org/facebook/Haxl.svg?branch=master)](https://travis-ci.org/facebook/Haxl)
