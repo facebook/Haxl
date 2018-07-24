@@ -24,6 +24,7 @@ module Haxl.Core.StateStore
 
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+import Data.Monoid
 import Data.Typeable
 import Unsafe.Coerce
 
@@ -46,6 +47,11 @@ class Typeable1 f => StateKey (f :: * -> *) where
 
 -- | The 'StateStore' maps a 'StateKey' to the 'State' for that type.
 newtype StateStore = StateStore (Map TypeRep StateStoreData)
+
+instance Monoid StateStore where
+  mempty = stateEmpty
+  -- Left-biased union
+  mappend (StateStore m1) (StateStore m2) = StateStore $ m1 <> m2
 
 -- | Encapsulates the type of 'StateStore' data so we can have a
 -- heterogeneous collection.
