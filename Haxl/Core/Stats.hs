@@ -23,7 +23,6 @@ module Haxl.Core.Stats
   , Timestamp
   , getTimestamp
   , emptyStats
-  , numRounds
   , numFetches
   , ppStats
   , ppFetchStats
@@ -158,9 +157,6 @@ instance ToJSON FetchStats where
 
 emptyStats :: Stats
 emptyStats = Stats []
-
-numRounds :: Stats -> Int
-numRounds (Stats rs) = length rs        -- not really
 
 numFetches :: Stats -> Int
 numFetches (Stats rs) = sum [ fetchBatchSize | FetchStats{..} <- rs ]

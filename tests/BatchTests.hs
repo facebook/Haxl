@@ -25,7 +25,7 @@ import Data.IORef
 --
 -- Test batching over multiple arguments in liftA2
 --
-batching1 = expectRounds 1 12 batching1_
+batching1 = expectResult 12 batching1_
 
 batching1_ = do
   a <- id1
@@ -35,7 +35,7 @@ batching1_ = do
 --
 -- Test batching in mapM (which is really traverse)
 --
-batching2 = expectRounds 1 12 batching2_
+batching2 = expectResult 12 batching2_
 
 batching2_ = do
   a <- id1
@@ -46,7 +46,7 @@ batching2_ = do
 --
 -- Test batching when we have a monadic bind in each branch
 --
-batching3 = expectRounds 1 12 batching3_
+batching3 = expectResult 12 batching3_
 
 batching3_ = do
   let a = id1 >>= friendsOf
@@ -56,7 +56,7 @@ batching3_ = do
 --
 -- Test batching over both arguments of (+)
 --
-batching4 = expectRounds 1 12 batching4_
+batching4 = expectResult 12 batching4_
 
 batching4_ = do
   let a = length <$> (id1 >>= friendsOf)
@@ -66,7 +66,7 @@ batching4_ = do
 --
 -- Test batching over both arguments of (+)
 --
-batching5 = expectRounds 1 2 batching5_
+batching5 = expectResult 2 batching5_
 
 batching5_ :: Haxl Int
 batching5_ = if a .> b then 1 else 2
@@ -77,14 +77,14 @@ batching5_ = if a .> b then 1 else 2
 --
 -- Test batching when we perform all batching tests together with sequence
 --
-batching6 = expectRounds 1 [12,12,12,12,2] batching6_
+batching6 = expectResult [12,12,12,12,2] batching6_
 
 batching6_ = sequence [batching1_,batching2_,batching3_,batching4_,batching5_]
 
 --
 -- Ensure if/then/else and bool operators break batching
 --
-batching7 = expectRounds 2 12 batching7_
+batching7 = expectResult 12 batching7_
 
 batching7_ :: Haxl Int
 batching7_ = if a .> 0 then a+b else 0
@@ -93,7 +93,7 @@ batching7_ = if a .> 0 then a+b else 0
   b = length <$> (id2 >>= friendsOf)
 
 -- We expect 3 rounds here due to boolean operators
-batching8 = expectRounds 3 12 batching8_
+batching8 = expectResult 12 batching8_
 
 batching8_ :: Haxl Int
 batching8_ = if (c .== 0) .|| (a .> 0 .&& b .> 0) then a+b else 0
@@ -103,7 +103,7 @@ batching8_ = if (c .== 0) .|| (a .> 0 .&& b .> 0) then a+b else 0
   c = length <$> (id3 >>= friendsOf)
 
 -- (>>) should batch, so we expect one round
-batching9 = expectRounds 1 6 batching9_
+batching9 = expectResult 6 batching9_
 
 batching9_ :: Haxl Int
 batching9_ = (id1 >>= friendsOf) >> (length <$> (id2 >>= friendsOf))
@@ -135,7 +135,7 @@ caching3_ = if nf id1 .> 0 then nf id1 + nf id2 + nf id3 else 0
 --
 cacheReuse future = do
   env <- makeTestEnv future
-  expectRoundsWithEnv 2 12 batching7_ env
+  expectResultWithEnv 12 batching7_ env
 
   -- make a new env
   tao <- MockTAO.initGlobalState future
@@ -143,7 +143,7 @@ cacheReuse future = do
   env2 <- initEnvWithData st testinput (caches env)
 
   -- ensure no more data fetching rounds needed
-  expectRoundsWithEnv 0 12 batching7_ env2
+  expectResultWithEnv 12 batching7_ env2
 
 noCaching future = do
   env <- makeTestEnv future
@@ -151,13 +151,12 @@ noCaching future = do
   result <- runHaxl env' caching3_
   assertEqual "result" result 18
   stats <- readIORef (statsRef env)
-  assertEqual "rounds" 2 (numRounds stats)
   assertEqual "fetches" 4 (numFetches stats)
 
-exceptionTest1 = expectRounds 1 []
+exceptionTest1 = expectResult []
   $ withDefault [] $ friendsOf 101
 
-exceptionTest2 = expectRounds 1 [7..12] $ liftA2 (++)
+exceptionTest2 = expectResult [7..12] $ liftA2 (++)
   (withDefault [] (friendsOf 101))
   (withDefault [] (friendsOf 2))
 

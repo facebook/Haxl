@@ -21,14 +21,14 @@ import Haxl.Prelude
 --
 -- Test ApplicativeDo batching
 --
-ado1 = expectRounds 1 12 ado1_
+ado1 = expectResult 12 ado1_
 
 ado1_ = do
   a <- friendsOf =<< id1
   b <- friendsOf =<< id2
   return (length (a ++ b))
 
-ado2 = expectRounds 1 12 ado2_
+ado2 = expectResult 12 ado2_
 
 ado2_ = do
   x <- id1
@@ -37,7 +37,7 @@ ado2_ = do
   b <- friendsOf y
   return (length (a ++ b))
 
-ado3 = expectRounds 2 11 ado3_
+ado3 = expectResult 11 ado3_
 
 ado3_ = do
   x <- id1

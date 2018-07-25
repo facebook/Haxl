@@ -43,7 +43,6 @@ module Haxl.Core (
   , Microseconds
   , Timestamp
   , emptyStats
-  , numRounds
   , numFetches
   , ppStats
   , ppFetchStats

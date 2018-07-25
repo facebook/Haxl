@@ -7,8 +7,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module TestUtils
   ( makeTestEnv
-  , expectRoundsWithEnv
-  , expectRounds
+  , expectResultWithEnv
+  , expectResult
   , expectFetches
   , testinput
   , id1, id2, id3, id4
@@ -53,18 +53,16 @@ makeTestEnv future = do
   env <- initEnv st testinput
   return env { flags = (flags env) { report = 2 } }
 
-expectRoundsWithEnv
-  :: (Eq a, Show a) => Int -> a -> Haxl a -> Env UserEnv -> Assertion
-expectRoundsWithEnv n result haxl env = do
+expectResultWithEnv
+  :: (Eq a, Show a) => a -> Haxl a -> Env UserEnv -> Assertion
+expectResultWithEnv result haxl env = do
   a <- runHaxl env haxl
   assertEqual "result" result a
-  stats <- readIORef (statsRef env)
-  assertEqual "rounds" n (numRounds stats)
 
-expectRounds :: (Eq a, Show a) => Int -> a -> Haxl a -> Bool -> Assertion
-expectRounds n result haxl future = do
+expectResult :: (Eq a, Show a) => a -> Haxl a -> Bool -> Assertion
+expectResult result haxl future = do
   env <- makeTestEnv future
-  expectRoundsWithEnv n result haxl env
+  expectResultWithEnv result haxl env
 
 expectFetches :: (Eq a, Show a) => Int -> Haxl a -> Bool -> Assertion
 expectFetches n haxl future = do
