@@ -1,3 +1,8 @@
+# Changes in version 2.0.1.1
+
+  * Support for GHC 8.6.1
+  * Bugfixes
+
 # Changes in version 2.0.1.0
 
   * Exported MemoVar from Haxl.Core.Memo

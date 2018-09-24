@@ -24,7 +24,9 @@ module Haxl.Core.StateStore
 
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+#if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
+#endif
 import Data.Typeable
 import Unsafe.Coerce
 
@@ -47,6 +49,11 @@ class Typeable1 f => StateKey (f :: * -> *) where
 
 -- | The 'StateStore' maps a 'StateKey' to the 'State' for that type.
 newtype StateStore = StateStore (Map TypeRep StateStoreData)
+
+#if __GLASGOW_HASKELL__ >= 804
+instance Semigroup StateStore where
+  (<>) = mappend
+#endif
 
 instance Monoid StateStore where
   mempty = stateEmpty
