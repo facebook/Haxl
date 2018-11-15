@@ -36,6 +36,14 @@ import Haxl.Core.Stats
 -- runHaxl
 
 -- | Runs a 'Haxl' computation in the given 'Env'.
+--
+-- Note: to make multiple concurrent calls to 'runHaxl', each one must
+-- have a separate 'Env'. A single 'Env' must /not/ be shared between
+-- multiple concurrent calls to 'runHaxl', otherwise deadlocks or worse
+-- will likely ensue.
+--
+-- However, multiple 'Env's may share a single 'StateStore', and thereby
+-- use the same set of datasources.
 runHaxl :: forall u a. Env u -> GenHaxl u a -> IO a
 runHaxl env@Env{..} haxl = do
 
