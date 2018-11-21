@@ -4,6 +4,7 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -23,7 +24,9 @@ module Haxl.Core.Profile
 
 import Data.IORef
 import Data.Hashable
+#if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
+#endif
 import Data.Text (Text)
 import Data.Typeable
 import qualified Data.HashMap.Strict as HashMap

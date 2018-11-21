@@ -37,7 +37,9 @@ import Data.Hashable
 import Data.IORef
 import Data.Int
 import Data.List
+#if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
+#endif
 import Data.Typeable
 import Data.Text (Text)
 import qualified Data.Text as Text
