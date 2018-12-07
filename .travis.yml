@@ -40,9 +40,12 @@ matrix:
     - compiler: "ghc-8.2.2"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
       addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.2.2], sources: [hvr-ghc]}}
-    - compiler: "ghc-8.4.3"
+    - compiler: "ghc-8.4.4"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
-      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.4.3], sources: [hvr-ghc]}}
+      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.4.4], sources: [hvr-ghc]}}
+    - compiler: "ghc-8.6.2"
+    # env: TEST=--disable-tests BENCH=--disable-benchmarks
+      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.6.2], sources: [hvr-ghc]}}
 
 before_install:
   - HC=${CC}

@@ -2,6 +2,8 @@
 
 # Haxl
 
+[![Build Status](https://travis-ci.org/facebook/Haxl.svg?branch=master)](https://travis-ci.org/facebook/Haxl)
+
 Haxl is a Haskell library that simplifies access to remote data, such
 as databases or web-based services. Haxl can automatically
 
@@ -55,5 +57,3 @@ Graph API.
    Hackage.
 
  * [There is no Fork: An Abstraction for Efficient, Concurrent, and Concise Data Access](http://simonmar.github.io/bib/papers/haxl-icfp14.pdf), our paper on Haxl, accepted for publication at ICFP'14.
-
-[![Build Status](https://travis-ci.org/facebook/Haxl.svg?branch=master)](https://travis-ci.org/facebook/Haxl)
