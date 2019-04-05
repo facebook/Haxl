@@ -464,8 +464,15 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
     addTimer t0 (BlockedFetch req (ResultVar fn)) =
       BlockedFetch req $ ResultVar $ \result isChildThread -> do
         t1 <- getTimestamp
+        -- We cannot measure allocation easily for BackgroundFetch. Here we
+        -- just attribute all allocation to the last `putResultFromChildThread`
+        -- and use 0 for the others. While the individual allocations may not
+        -- be correct, the total sum and amortized allocation are still
+        -- meaningful.
+        -- see Note [tracking allocation in child threads]
+        allocs <- if isChildThread then getAllocationCounter else return 0
         updateFetchStats t0 (t1 - t0)
-          0 -- allocs: we can't measure this easily for BackgroundFetch
+          allocs
           1 -- batch size: we don't know if this is a batch or not
           (if isLeft result then 1 else 0) -- failures
         fn result isChildThread
