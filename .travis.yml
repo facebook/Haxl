@@ -43,9 +43,9 @@ matrix:
     - compiler: "ghc-8.4.4"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
       addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.4.4], sources: [hvr-ghc]}}
-    - compiler: "ghc-8.6.2"
+    - compiler: "ghc-8.6.4"
     # env: TEST=--disable-tests BENCH=--disable-benchmarks
-      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.6.2], sources: [hvr-ghc]}}
+      addons: {apt: {packages: [ghc-ppa-tools,cabal-install-head,ghc-8.6.4], sources: [hvr-ghc]}}
 
 before_install:
   - HC=${CC}
@@ -85,7 +85,7 @@ install:
 script:
   # test that source-distributions can be generated
   - (cd "." && cabal sdist)
-  - mv "."/dist/haxl-*.tar.gz ${DISTDIR}/
+  - mv "."/dist-newstyle/sdist/haxl-*.tar.gz ${DISTDIR}/
   - cd ${DISTDIR} || false
   - find . -maxdepth 1 -name '*.tar.gz' -exec tar -xvf '{}' \;
   - "printf 'packages: haxl-*/*.cabal\\n' > cabal.project"
