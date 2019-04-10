@@ -9,7 +9,7 @@
 --
 module Haxl.Core (
     -- * The monad and operations
-    GenHaxl (..), runHaxl
+    GenHaxl (..), runHaxl, runHaxlWithWrites
 
     -- ** Env
   , Env(..), Caches, caches

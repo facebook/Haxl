@@ -25,7 +25,7 @@ testEnv fn = do
   let st = stateSet exstate $ stateSet (fn badstate) stateEmpty
   initEnv st ()
 
-wombats :: GenHaxl () Int
+wombats :: GenHaxl () () Int
 wombats = length <$> listWombats 3
 
 badDataSourceTest :: Test

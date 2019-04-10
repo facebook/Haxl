@@ -11,6 +11,7 @@
 module TestTypes
    ( UserEnv
    , Haxl
+   , HaxlEnv
    , lookupInput
    , Id(..)
    ) where
@@ -26,7 +27,8 @@ import Data.Typeable
 import Haxl.Core
 
 type UserEnv = Object
-type Haxl a = GenHaxl UserEnv a
+type Haxl a = GenHaxl UserEnv () a
+type HaxlEnv = Env UserEnv ()
 
 lookupInput :: FromJSON a => Text -> Haxl a
 lookupInput field = do

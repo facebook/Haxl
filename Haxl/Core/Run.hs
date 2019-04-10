@@ -13,6 +13,7 @@
 --
 module Haxl.Core.Run
   ( runHaxl
+  , runHaxlWithWrites
   ) where
 
 import Control.Concurrent.STM
@@ -44,9 +45,11 @@ import Haxl.Core.Stats
 --
 -- However, multiple 'Env's may share a single 'StateStore', and thereby
 -- use the same set of datasources.
-runHaxl :: forall u w a. Env u w -> GenHaxl u w a -> IO (a, [w])
-runHaxl env@Env{..} haxl = do
+runHaxl:: forall u w a. Env u w -> GenHaxl u w a -> IO a
+runHaxl env haxl = fst <$> runHaxlWithWrites env haxl
 
+runHaxlWithWrites :: forall u w a. Env u w -> GenHaxl u w a -> IO (a, [w])
+runHaxlWithWrites env@Env{..} haxl = do
   result@(IVar resultRef) <- newIVar -- where to put the final result
   let
     -- Run a job, and put its result in the given IVar

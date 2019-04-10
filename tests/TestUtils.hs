@@ -46,7 +46,7 @@ id3 = lookupInput "C"
 id4 :: Haxl Id
 id4 = lookupInput "D"
 
-makeTestEnv :: Bool -> IO (Env UserEnv)
+makeTestEnv :: Bool -> IO HaxlEnv
 makeTestEnv future = do
   tao <- MockTAO.initGlobalState future
   let st = stateSet tao stateEmpty
@@ -54,7 +54,7 @@ makeTestEnv future = do
   return env { flags = (flags env) { report = 2 } }
 
 expectResultWithEnv
-  :: (Eq a, Show a) => a -> Haxl a -> Env UserEnv -> Assertion
+  :: (Eq a, Show a) => a -> Haxl a -> HaxlEnv -> Assertion
 expectResultWithEnv result haxl env = do
   a <- runHaxl env haxl
   assertEqual "result" result a

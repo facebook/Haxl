@@ -50,7 +50,7 @@ getUsernameById userId = dataFetch (GetNameById userId)
 
 -- Aliases.
 
-type Haxl = GenHaxl ()
+type Haxl = GenHaxl () ()
 type Id = Int
 type Name = Text
 
