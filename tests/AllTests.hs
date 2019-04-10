@@ -20,6 +20,7 @@ import ProfileTests
 import MemoizationTests
 import TestBadDataSource
 import FullyAsyncTest
+import WriteTests
 
 import Test.HUnit
 
@@ -39,4 +40,5 @@ allTests = TestList
   , TestLabel "MemoizationTests" MemoizationTests.tests
   , TestLabel "BadDataSourceTests" TestBadDataSource.tests
   , TestLabel "FullyAsyncTest" FullyAsyncTest.tests
+  , TestLabel "WriteTest" WriteTests.tests
   ]
