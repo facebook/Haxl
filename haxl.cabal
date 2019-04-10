@@ -151,6 +151,7 @@ test-suite test
     TestTypes
     TestUtils
     WorkDataSource
+    WriteTests
 
   type:
     exitcode-stdio-1.0
