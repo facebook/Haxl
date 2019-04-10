@@ -155,8 +155,8 @@ fetch1 (BlockedFetch (ListWombats a) r) =
 -- Normally a data source will provide some convenient wrappers for
 -- its requests:
 
-countAardvarks :: String -> GenHaxl u Int
+countAardvarks :: String -> GenHaxl u w Int
 countAardvarks str = dataFetch (CountAardvarks str)
 
-listWombats :: Id -> GenHaxl u [Id]
+listWombats :: Id -> GenHaxl u w [Id]
 listWombats i = dataFetch (ListWombats i)

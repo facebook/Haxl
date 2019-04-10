@@ -25,7 +25,7 @@ import Control.Exception
 import Data.Hashable
 import Data.Typeable
 
-work :: Integer -> GenHaxl u Integer
+work :: Integer -> GenHaxl u w Integer
 work n = dataFetch (Work n)
 
 data Work deriving Typeable

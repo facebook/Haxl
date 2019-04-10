@@ -48,7 +48,7 @@ sleepTest = TestCase $ do
   print stats
   assertEqual "FullyAsyncTest: stats" 5 (numFetches stats)
 
-andThen :: GenHaxl u a -> GenHaxl u b -> GenHaxl u b
+andThen :: GenHaxl u w a -> GenHaxl u w b -> GenHaxl u w b
 andThen a b = a >>= \_ -> b
 
 {-

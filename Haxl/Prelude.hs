@@ -106,12 +106,12 @@ instance IfThenElse Bool a where
 --
 -- > if ipGetCountry ip .== "us" then ... else ...
 --
-instance (u1 ~ u2) => IfThenElse (GenHaxl u1 Bool) (GenHaxl u2 a) where
+instance (u1 ~ u2) => IfThenElse (GenHaxl u1 w Bool) (GenHaxl u2 w a) where
   ifThenElse fb t e = do
     b <- fb
     if b then t else e
 
-instance Num a => Num (GenHaxl u a) where
+instance Num a => Num (GenHaxl u w a) where
   (+)         = liftA2 (+)
   (-)         = liftA2 (-)
   (*)         = liftA2 (*)
@@ -120,7 +120,7 @@ instance Num a => Num (GenHaxl u a) where
   signum      = liftA signum
   negate      = liftA negate
 
-instance Fractional a => Fractional (GenHaxl u a) where
+instance Fractional a => Fractional (GenHaxl u w a) where
   (/) = liftA2 (/)
   recip = liftA recip
   fromRational = return . fromRational
@@ -131,35 +131,35 @@ instance Fractional a => Fractional (GenHaxl u a) where
 -- convention is to prefix the name with a '.'.  We could change this,
 -- or even just not provide these at all.
 
-(.>) :: Ord a => GenHaxl u a -> GenHaxl u a -> GenHaxl u Bool
+(.>) :: Ord a => GenHaxl u w a -> GenHaxl u w a -> GenHaxl u w Bool
 (.>) = liftA2 (Prelude.>)
 
-(.<) :: Ord a => GenHaxl u a -> GenHaxl u a -> GenHaxl u Bool
+(.<) :: Ord a => GenHaxl u w a -> GenHaxl u w a -> GenHaxl u w Bool
 (.<) = liftA2 (Prelude.<)
 
-(.>=) :: Ord a => GenHaxl u a -> GenHaxl u a -> GenHaxl u Bool
+(.>=) :: Ord a => GenHaxl u w a -> GenHaxl u w a -> GenHaxl u w Bool
 (.>=) = liftA2 (Prelude.>=)
 
-(.<=) :: Ord a => GenHaxl u a -> GenHaxl u a -> GenHaxl u Bool
+(.<=) :: Ord a => GenHaxl u w a -> GenHaxl u w a -> GenHaxl u w Bool
 (.<=) = liftA2 (Prelude.<=)
 
-(.==) :: Eq a => GenHaxl u a -> GenHaxl u a -> GenHaxl u Bool
+(.==) :: Eq a => GenHaxl u w a -> GenHaxl u w a -> GenHaxl u w Bool
 (.==) = liftA2 (Prelude.==)
 
-(./=) :: Eq a => GenHaxl u a -> GenHaxl u a -> GenHaxl u Bool
+(./=) :: Eq a => GenHaxl u w a -> GenHaxl u w a -> GenHaxl u w Bool
 (./=) = liftA2 (Prelude./=)
 
-(.++) :: GenHaxl u [a] -> GenHaxl u [a] -> GenHaxl u [a]
+(.++) :: GenHaxl u w [a] -> GenHaxl u w [a] -> GenHaxl u w [a]
 (.++) = liftA2 (Prelude.++)
 
 -- short-circuiting Bool operations
-(.&&):: GenHaxl u Bool -> GenHaxl u Bool -> GenHaxl u Bool
+(.&&):: GenHaxl u w Bool -> GenHaxl u w Bool -> GenHaxl u w Bool
 fa .&& fb = do a <- fa; if a then fb else return False
 
-(.||):: GenHaxl u Bool -> GenHaxl u Bool -> GenHaxl u Bool
+(.||):: GenHaxl u w Bool -> GenHaxl u w Bool -> GenHaxl u w Bool
 fa .|| fb = do a <- fa; if a then return True else fb
 
-pair :: GenHaxl u a -> GenHaxl u b -> GenHaxl u (a, b)
+pair :: GenHaxl u w a -> GenHaxl u w b -> GenHaxl u w (a, b)
 pair = liftA2 (,)
 
 -- -----------------------------------------------------------------------------
@@ -203,14 +203,14 @@ filterM predicate xs =
 -- 'TransientError' or 'LogicError' exception (see
 -- "Haxl.Core.Exception"), the exception is ignored and the supplied
 -- default value is returned instead.
-withDefault :: a -> GenHaxl u a -> GenHaxl u a
+withDefault :: a -> GenHaxl u w a -> GenHaxl u w a
 withDefault d a = catchAny a (return d)
 
 -- | Catch 'LogicError's and 'TransientError's and perform an alternative action
 catchAny
-  :: GenHaxl u a   -- ^ run this first
-  -> GenHaxl u a   -- ^ if it throws 'LogicError' or 'TransientError', run this
-  -> GenHaxl u a
+  :: GenHaxl u w a   -- ^ run this first
+  -> GenHaxl u w a   -- ^ if it throws 'LogicError' or 'TransientError', run this
+  -> GenHaxl u w a
 catchAny haxl handler =
   haxl `catch` \e ->
     if isJust (fromException e :: Maybe LogicError) ||

@@ -64,20 +64,20 @@ import Haxl.Core.Util
 -- Data fetching and caching
 
 -- | Possible responses when checking the cache.
-data CacheResult u a
+data CacheResult u w a
   -- | The request hadn't been seen until now.
   = Uncached
        (ResultVar a)
-       {-# UNPACK #-} !(IVar u a)
+       {-# UNPACK #-} !(IVar u w a)
 
   -- | The request has been seen before, but its result has not yet been
   -- fetched.
   | CachedNotFetched
-      {-# UNPACK #-} !(IVar u a)
+      {-# UNPACK #-} !(IVar u w a)
 
   -- | The request has been seen before, and its result has already been
   -- fetched.
-  | Cached (ResultVal a)
+  | Cached (ResultVal a w)
 
 
 -- | Show functions for request and its result.
@@ -93,11 +93,11 @@ type ShowReq r a = (r a -> String, a -> String)
 -- hidden from the Haxl user.
 
 cachedWithInsert
-  :: forall r a u .
+  :: forall r a u w.
      Typeable (r a)
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u a -> DataCache (IVar u) -> DataCache (IVar u))
-  -> Env u -> r a -> IO (CacheResult u a)
+  -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w))
+  -> Env u w -> r a -> IO (CacheResult u w a)
 cachedWithInsert showFn insertFn Env{..} req = do
   cache <- readIORef cacheRef
   let
@@ -114,15 +114,15 @@ cachedWithInsert showFn insertFn Env{..} req = do
         IVarEmpty _ -> return (CachedNotFetched (IVar cr))
         IVarFull r -> do
           ifTrace flags 3 $ putStrLn $ case r of
-            ThrowIO _ -> "Cached error: " ++ showFn req
-            ThrowHaxl _ -> "Cached error: " ++ showFn req
-            Ok _ -> "Cached request: " ++ showFn req
+            ThrowIO{} -> "Cached error: " ++ showFn req
+            ThrowHaxl{} -> "Cached error: " ++ showFn req
+            Ok{} -> "Cached request: " ++ showFn req
           return (Cached r)
 
 
 -- | Make a ResultVar with the standard function for sending a CompletionReq
 -- to the scheduler.
-stdResultVar :: IVar u a -> TVar [CompleteReq u] -> ResultVar a
+stdResultVar :: IVar u w a -> TVar [CompleteReq u w] -> ResultVar a
 stdResultVar ivar completions = mkResultVar $ \r isChildThread -> do
   allocs <- if isChildThread
     then
@@ -139,7 +139,7 @@ stdResultVar ivar completions = mkResultVar $ \r isChildThread -> do
 
 -- | Record the call stack for a data fetch in the Stats.  Only useful
 -- when profiling.
-logFetch :: Env u -> (r a -> String) -> r a -> IO ()
+logFetch :: Env u w -> (r a -> String) -> r a -> IO ()
 #ifdef PROFILING
 logFetch env showFn req = do
   ifReport (flags env) 5 $ do
@@ -151,7 +151,7 @@ logFetch _ _ _ = return ()
 #endif
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
-dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u a
+dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u w a
 dataFetch = dataFetchWithInsert show DataCache.insert
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
@@ -159,19 +159,19 @@ dataFetch = dataFetchWithInsert show DataCache.insert
 dataFetchWithShow
   :: (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
   => ShowReq r a
-  -> r a -> GenHaxl u a
+  -> r a -> GenHaxl u w a
 dataFetchWithShow (showReq, showRes) = dataFetchWithInsert showReq
   (DataCache.insertWithShow showReq showRes)
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource', using
 -- the given function to insert requests in the cache.
 dataFetchWithInsert
-  :: forall u r a
+  :: forall u w r a
    . (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u a -> DataCache (IVar u) -> DataCache (IVar u))
+  -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w))
   -> r a
-  -> GenHaxl u a
+  -> GenHaxl u w a
 dataFetchWithInsert showFn insertFn req =
   GenHaxl $ \env@Env{..} -> do
   -- First, check the cache
@@ -220,7 +220,7 @@ dataFetchWithInsert showFn insertFn req =
 -- This allows us to store the request in the cache when recording, which
 -- allows a transparent run afterwards. Without this, the test would try to
 -- call the datasource during testing and that would be an exception.
-uncachedRequest :: (DataSource u r, Request r a) => r a -> GenHaxl u a
+uncachedRequest :: (DataSource u r, Request r a) => r a -> GenHaxl u w a
 uncachedRequest req = do
   isRecordingFlag <- env (recording . flags)
   if isRecordingFlag /= 0
@@ -238,14 +238,14 @@ uncachedRequest req = do
 -- the IO operation (except for asynchronous exceptions) are
 -- propagated into the Haxl monad and can be caught by 'catch' and
 -- 'try'.
-cacheResult :: Request r a => r a -> IO a -> GenHaxl u a
+cacheResult :: Request r a => r a -> IO a -> GenHaxl u w a
 cacheResult = cacheResultWithInsert show DataCache.insert
 
 -- | Transparently provides caching in the same way as 'cacheResult', but uses
 -- the given functions to show requests and their results.
 cacheResultWithShow
   :: (Eq (r a), Hashable (r a), Typeable (r a))
-  => ShowReq r a -> r a -> IO a -> GenHaxl u a
+  => ShowReq r a -> r a -> IO a -> GenHaxl u w a
 cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
   (DataCache.insertWithShow showReq showRes)
 
@@ -254,8 +254,8 @@ cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
 cacheResultWithInsert
   :: Typeable (r a)
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u a -> DataCache (IVar u) -> DataCache (IVar u)) -> r a
-  -> IO a -> GenHaxl u a
+  -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w)) -> r a
+  -> IO a -> GenHaxl u w a
 cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env -> do
   let !ref = cacheRef env
   cache <- readIORef ref
@@ -292,7 +292,7 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env -> do
 -- deterministic.
 --
 cacheRequest
-  :: Request req a => req a -> Either SomeException a -> GenHaxl u ()
+  :: Request req a => req a -> Either SomeException a -> GenHaxl u w ()
 cacheRequest request result = GenHaxl $ \env -> do
   cache <- readIORef (cacheRef env)
   case DataCache.lookup request cache of
@@ -308,7 +308,7 @@ cacheRequest request result = GenHaxl $ \env -> do
       DataSourceError "cacheRequest: request is already in the cache"
 
 performRequestStore
-   :: forall u. Int -> Env u -> RequestStore u -> IO (Int, [IO ()])
+   :: forall u w. Int -> Env u w -> RequestStore u -> IO (Int, [IO ()])
 performRequestStore n env reqStore =
   performFetches n env (contents reqStore)
 
@@ -316,7 +316,7 @@ performRequestStore n env reqStore =
 -- 'performFetches', all the requests in the 'RequestStore' are
 -- complete, and all of the 'ResultVar's are full.
 performFetches
-  :: forall u. Int -> Env u -> [BlockedFetches u] -> IO (Int, [IO ()])
+  :: forall u w. Int -> Env u w -> [BlockedFetches u] -> IO (Int, [IO ()])
 performFetches n env@Env{flags=f, statsRef=sref} jobs = do
   let !n' = n + length jobs
 

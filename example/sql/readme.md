@@ -159,7 +159,7 @@ getUsernameById userId = dataFetch (GetNameById userId)
 `GenHaxl` action to fetch it concurrently with others.
 
 ```haskell
-dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u a
+dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u w a
 ```
 
 Like magic, the naïve code that *looks* like it will do N+1 fetches will now do just two.

@@ -1,4 +1,4 @@
-loadCache :: GenHaxl u ()
+loadCache :: GenHaxl u w ()
 loadCache = do
   cacheRequest (CountAardvarks "yyy") (except (LogicError (NotFound "yyy")))
   cacheRequest (CountAardvarks "xxx") (Right (3))

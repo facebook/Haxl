@@ -27,7 +27,7 @@ import Control.Concurrent
 import Data.Hashable
 import Data.Typeable
 
-sleep :: Int -> GenHaxl u Int
+sleep :: Int -> GenHaxl u w Int
 sleep n = dataFetch (Sleep n)
 
 data Sleep deriving Typeable

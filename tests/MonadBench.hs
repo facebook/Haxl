@@ -25,7 +25,7 @@ import Haxl.Core
 
 import ExampleDataSource
 
-testEnv :: IO (Env ())
+testEnv :: IO (Env () ())
 testEnv = do
   exstate <- ExampleDataSource.initGlobalState
   let st = stateSet exstate stateEmpty
@@ -118,18 +118,18 @@ main = do
   -- can't use >>, it is aliased to *> and we want the real bind here
   andThen x y = x >>= const y
 
-tree :: Int -> GenHaxl () [Id]
+tree :: Int -> GenHaxl () () [Id]
 tree 0 = listWombats 0
 tree n = concat <$> Haxl.sequence
   [ tree (n-1)
   , listWombats (fromIntegral n), tree (n-1)
   ]
 
-unionWombats :: GenHaxl () [Id]
+unionWombats :: GenHaxl () () [Id]
 unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..1000]
 
-unionWombatsTo :: Id -> GenHaxl () [Id]
+unionWombatsTo :: Id -> GenHaxl () () [Id]
 unionWombatsTo x = foldl List.union [] <$> Haxl.mapM listWombats [1..x]
 
-unionWombatsFromTo :: Id -> Id -> GenHaxl () [Id]
+unionWombatsFromTo :: Id -> Id -> GenHaxl () () [Id]
 unionWombatsFromTo x y = foldl List.union [] <$> Haxl.mapM listWombats [x..y]

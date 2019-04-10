@@ -43,7 +43,7 @@ import Haxl.Core.Monad
 -- Profiling
 
 -- | Label a computation so profiling data is attributed to the label.
-withLabel :: ProfileLabel -> GenHaxl u a -> GenHaxl u a
+withLabel :: ProfileLabel -> GenHaxl u w a -> GenHaxl u w a
 withLabel l (GenHaxl m) = GenHaxl $ \env ->
   if report (flags env) < 4
      then m env
@@ -51,7 +51,7 @@ withLabel l (GenHaxl m) = GenHaxl $ \env ->
 
 -- | Label a computation so profiling data is attributed to the label.
 -- Intended only for internal use by 'memoFingerprint'.
-withFingerprintLabel :: Addr# -> Addr# -> GenHaxl u a -> GenHaxl u a
+withFingerprintLabel :: Addr# -> Addr# -> GenHaxl u w a -> GenHaxl u w a
 withFingerprintLabel mnPtr nPtr (GenHaxl m) = GenHaxl $ \env ->
   if report (flags env) < 4
      then m env
@@ -62,9 +62,9 @@ withFingerprintLabel mnPtr nPtr (GenHaxl m) = GenHaxl $ \env ->
 -- | Collect profiling data and attribute it to given label.
 collectProfileData
   :: ProfileLabel
-  -> (Env u -> IO (Result u a))
-  -> Env u
-  -> IO (Result u a)
+  -> (Env u w -> IO (Result u w a))
+  -> Env u w
+  -> IO (Result u w a)
 collectProfileData l m env = do
    a0 <- getAllocationCounter
    r <- m env{profLabel=l} -- what if it throws?
@@ -78,7 +78,7 @@ collectProfileData l m env = do
      Blocked ivar k -> return (Blocked ivar (Cont (withLabel l (toHaxl k))))
 {-# INLINE collectProfileData #-}
 
-modifyProfileData :: Env u -> ProfileLabel -> AllocCount -> IO ()
+modifyProfileData :: Env u w -> ProfileLabel -> AllocCount -> IO ()
 modifyProfileData env label allocs =
   modifyIORef' (profRef env) $ \ p ->
     p { profile =
@@ -113,9 +113,9 @@ modifyProfileData env label allocs =
 --   will call profileCont the next time this cont runs)
 --
 profileCont
-  :: (Env u -> IO (Result u a))
-  -> Env u
-  -> IO (Result u a)
+  :: (Env u w -> IO (Result u w a))
+  -> Env u w
+  -> IO (Result u w a)
 profileCont m env = do
   a0 <- getAllocationCounter
   r <- m env
@@ -143,8 +143,8 @@ incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
 
 {-# NOINLINE addProfileFetch #-}
 addProfileFetch
-  :: forall r u a . (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
-  => Env u -> r a -> IO ()
+  :: forall r u w a . (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
+  => Env u w -> r a -> IO ()
 addProfileFetch env _req = do
   c <- getAllocationCounter
   modifyIORef' (profRef env) $ \ p ->

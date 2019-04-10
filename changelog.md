@@ -1,3 +1,14 @@
+# Changes in version 2.1.0.0
+
+  * Add a new 'w' parameter to 'GenHaxl' to allow arbitrary writes during
+    a computation. These writes are stored as a running log in the Env,
+    and are not memoized. This allows users to extract information from
+    a Haxl computation which throws. Our advise is to limit these writes to
+    monitoring and debugging logs.
+
+  * A 'WriteTree' constructor to maintain log of writes inside the Environment.
+    This is defined to allow O(1) mappend.
+
 # Changes in version 2.0.1.1
 
   * Support for GHC 8.6.1

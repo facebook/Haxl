@@ -20,6 +20,9 @@ module Haxl.Core (
     -- *** Building the StateStore
   , StateStore, stateGet, stateSet, stateEmpty
 
+    -- ** Writes inside the monad
+  , tellWrite
+
     -- ** Exceptions
   , throw, catch, catchIf, try, tryToHaxlException
 

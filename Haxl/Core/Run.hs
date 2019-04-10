@@ -44,13 +44,13 @@ import Haxl.Core.Stats
 --
 -- However, multiple 'Env's may share a single 'StateStore', and thereby
 -- use the same set of datasources.
-runHaxl :: forall u a. Env u -> GenHaxl u a -> IO a
+runHaxl :: forall u w a. Env u w -> GenHaxl u w a -> IO (a, [w])
 runHaxl env@Env{..} haxl = do
 
   result@(IVar resultRef) <- newIVar -- where to put the final result
   let
     -- Run a job, and put its result in the given IVar
-    schedule :: Env u -> JobList u -> GenHaxl u b -> IVar u b -> IO ()
+    schedule :: Env u w -> JobList u w -> GenHaxl u w b -> IVar u w b -> IO ()
     schedule env@Env{..} rq (GenHaxl run) (IVar !ref) = do
       ifTrace flags 3 $ printf "schedule: %d\n" (1 + lengthJobList rq)
       let {-# INLINE result #-}
@@ -82,8 +82,12 @@ runHaxl env@Env{..} haxl = do
         Left e -> do
           rethrowAsyncExceptions e
           result (ThrowIO e)
-        Right (Done a) -> result (Ok a)
-        Right (Throw ex) -> result (ThrowHaxl ex)
+        Right (Done a) -> do
+          wt <- readIORef writeLogsRef
+          result (Ok a wt)
+        Right (Throw ex) -> do
+          wt <- readIORef writeLogsRef
+          result (ThrowHaxl ex wt)
         Right (Blocked ivar fn) -> do
           addJob env (toHaxl fn) (IVar ref) ivar
           reschedule env rq
@@ -103,7 +107,7 @@ runHaxl env@Env{..} haxl = do
     -- individual data sources can request that their requests are
     -- sent eagerly by using schedulerHint.
     --
-    reschedule :: Env u -> JobList u -> IO ()
+    reschedule :: Env u w -> JobList u w -> IO ()
     reschedule env@Env{..} haxls = do
       case haxls of
         JobNil -> do
@@ -116,7 +120,7 @@ runHaxl env@Env{..} haxl = do
         JobCons env' a b c ->
           schedule env' c a b
 
-    emptyRunQueue :: Env u -> IO ()
+    emptyRunQueue :: Env u w -> IO ()
     emptyRunQueue env@Env{..} = do
       ifTrace flags 3 $ printf "emptyRunQueue\n"
       haxls <- checkCompletions env
@@ -130,7 +134,7 @@ runHaxl env@Env{..} haxl = do
               emptyRunQueue env { pendingWaits = waits } -- check completions
         _ -> reschedule env haxls
 
-    checkRequestStore :: Env u -> IO ()
+    checkRequestStore :: Env u w -> IO ()
     checkRequestStore env@Env{..} = do
       reqStore <- readIORef reqStoreRef
       if RequestStore.isEmpty reqStore
@@ -146,7 +150,7 @@ runHaxl env@Env{..} haxl = do
             writeIORef cacheRef emptyDataCache
           emptyRunQueue env{ pendingWaits = waits ++ pendingWaits }
 
-    checkCompletions :: Env u -> IO (JobList u)
+    checkCompletions :: Env u w -> IO (JobList u w)
     checkCompletions Env{..} = do
       ifTrace flags 3 $ printf "checkCompletions\n"
       comps <- atomically $ do
@@ -179,7 +183,7 @@ runHaxl env@Env{..} haxl = do
           jobs <- mapM getComplete comps
           return (foldr appendJobList JobNil jobs)
 
-    waitCompletions :: Env u -> IO ()
+    waitCompletions :: Env u w -> IO ()
     waitCompletions env@Env{..} = do
       ifTrace flags 3 $ printf "waitCompletions\n"
       atomically $ do
@@ -192,8 +196,10 @@ runHaxl env@Env{..} haxl = do
   r <- readIORef resultRef
   case r of
     IVarEmpty _ -> throwIO (CriticalError "runHaxl: missing result")
-    IVarFull (Ok a)  -> return a
-    IVarFull (ThrowHaxl e)  -> throwIO e
+    IVarFull (Ok a wt)  -> return (a, flattenWT wt)
+    IVarFull (ThrowHaxl e _wt)  -> throwIO e
+      -- The written logs are discarded when there's a Haxl exception. We
+      -- can change this behavior if we need to get access to partial logs.
     IVarFull (ThrowIO e)  -> throwIO e
 
 

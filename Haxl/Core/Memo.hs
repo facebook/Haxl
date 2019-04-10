@@ -69,18 +69,18 @@ import Haxl.Core.Profile
 -- of 'dumpCacheAsHaskell'.
 --
 cachedComputation
-   :: forall req u a.
+   :: forall req u w a.
       ( Eq (req a)
       , Hashable (req a)
       , Typeable (req a))
-   => req a -> GenHaxl u a -> GenHaxl u a
+   => req a -> GenHaxl u w a -> GenHaxl u w a
 
 cachedComputation req haxl = GenHaxl $ \env@Env{..} -> do
   cache <- readIORef memoRef
   ifProfiling flags $
      modifyIORef' profRef (incrementMemoHitCounterFor profLabel)
   case DataCache.lookup req cache of
-    Just ivar -> unHaxl (getIVar ivar) env
+    Just ivar -> unHaxl (getIVarWithWrites ivar) env
     Nothing -> do
       ivar <- newIVar
       writeIORef memoRef $! DataCache.insertNotShowable req ivar cache
@@ -96,11 +96,11 @@ cachedComputation req haxl = GenHaxl $ \env@Env{..} -> do
 -- silently succeed if the cache is already populated.
 --
 preCacheComputation
-  :: forall req u a.
+  :: forall req u w a.
      ( Eq (req a)
      , Hashable (req a)
      , Typeable (req a))
-  => req a -> GenHaxl u a -> GenHaxl u a
+  => req a -> GenHaxl u w a -> GenHaxl u w a
 preCacheComputation req haxl = GenHaxl $ \env@Env{..} -> do
   cache <- readIORef memoRef
   ifProfiling flags $
@@ -116,29 +116,29 @@ preCacheComputation req haxl = GenHaxl $ \env@Env{..} -> do
 -- -----------------------------------------------------------------------------
 -- Memoization
 
-newtype MemoVar u a = MemoVar (IORef (MemoStatus u a))
+newtype MemoVar u w a = MemoVar (IORef (MemoStatus u w a))
 
-data MemoStatus u a
+data MemoStatus u w a
   = MemoEmpty
-  | MemoReady (GenHaxl u a)
-  | MemoRun {-# UNPACK #-} !(IVar u a)
+  | MemoReady (GenHaxl u w a)
+  | MemoRun {-# UNPACK #-} !(IVar u w a)
 
 -- | Create a new @MemoVar@ for storing a memoized computation. The created
 -- @MemoVar@ is initially empty, not tied to any specific computation. Running
 -- this memo (with @runMemo@) without preparing it first (with @prepareMemo@)
 -- will result in an exception.
-newMemo :: GenHaxl u (MemoVar u a)
+newMemo :: GenHaxl u w (MemoVar u w a)
 newMemo = unsafeLiftIO $ MemoVar <$> newIORef MemoEmpty
 
 -- | Store a computation within a supplied @MemoVar@. Any memo stored within the
 -- @MemoVar@ already (regardless of completion) will be discarded, in favor of
 -- the supplied computation. A @MemoVar@ must be prepared before it is run.
-prepareMemo :: MemoVar u a -> GenHaxl u a -> GenHaxl u ()
+prepareMemo :: MemoVar u w a -> GenHaxl u w a -> GenHaxl u w ()
 prepareMemo (MemoVar memoRef) memoCmp
   = unsafeLiftIO $ writeIORef memoRef (MemoReady memoCmp)
 
 -- | Convenience function, combines @newMemo@ and @prepareMemo@.
-newMemoWith :: GenHaxl u a -> GenHaxl u (MemoVar u a)
+newMemoWith :: GenHaxl u w a -> GenHaxl u w (MemoVar u w a)
 newMemoWith memoCmp = do
   memoVar <- newMemo
   prepareMemo memoVar memoCmp
@@ -192,7 +192,7 @@ newMemoWith memoCmp = do
 -- >   b <- g
 -- >   return (a + b)
 --
-runMemo :: MemoVar u a -> GenHaxl u a
+runMemo :: MemoVar u w a -> GenHaxl u w a
 runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
   stored <- readIORef memoRef
   case stored of
@@ -204,55 +204,70 @@ runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
       writeIORef memoRef (MemoRun ivar)
       unHaxl (execMemoNow cont ivar) env
     -- The memo has already been run, get (or wait for) for the result
-    MemoRun ivar -> unHaxl (getIVar ivar) env
+    MemoRun ivar -> unHaxl (getIVarWithWrites ivar) env
 
 
-execMemoNow :: GenHaxl u a -> IVar u a -> GenHaxl u a
+execMemoNow :: GenHaxl u w a -> IVar u w a -> GenHaxl u w a
 execMemoNow cont ivar = GenHaxl $ \env -> do
-  let !ienv = imperative env   -- don't speculate under memoized things
+  wlogs <- newIORef NilWrites
+  let
+    !ienv = imperative env { writeLogsRef = wlogs }
+    -- don't speculate under memoized things
+    -- also we won't an env with empty writes, so we can memoize the extra
+    -- writes done as part of 'cont'
   r <- Exception.try $ unHaxl cont ienv
+
   case r of
     Left e -> do
       rethrowAsyncExceptions e
       putIVar ivar (ThrowIO e) env
       throwIO e
     Right (Done a) -> do
-      putIVar ivar (Ok a) env
+      wt <- readIORef wlogs
+      putIVar ivar (Ok a wt) env
+      mbModifyWLRef wt (writeLogsRef env)
       return (Done a)
     Right (Throw ex) -> do
-      putIVar ivar (ThrowHaxl ex) env
+      wt <- readIORef wlogs
+      putIVar ivar (ThrowHaxl ex wt) env
+      mbModifyWLRef wt (writeLogsRef env)
       return (Throw ex)
     Right (Blocked ivar' cont) -> do
-      addJob env (toHaxl cont) ivar ivar'
-      return (Blocked ivar (Cont (getIVar ivar)))
+      -- We "block" this memoized computation in the new environment 'ienv', so
+      -- that when it finishes, we can store all the write logs from the env
+      -- in the IVar.
+      addJob ienv (toHaxl cont) ivar ivar'
+      -- Now we call @getIVarWithWrites@ to populate the writes in the original
+      -- environment 'env'.
+      return (Blocked ivar (Cont (getIVarWithWrites ivar)))
 
 -- -----------------------------------------------------------------------------
 -- 1-ary and 2-ary memo functions
 
-newtype MemoVar1 u a b = MemoVar1 (IORef (MemoStatus1 u a b))
-newtype MemoVar2 u a b c = MemoVar2 (IORef (MemoStatus2 u a b c))
+newtype MemoVar1 u w a b = MemoVar1 (IORef (MemoStatus1 u w a b))
+newtype MemoVar2 u w a b c = MemoVar2 (IORef (MemoStatus2 u w a b c))
 
-data MemoStatus1 u a b
+data MemoStatus1 u w a b
   = MemoEmpty1
-  | MemoTbl1 (a -> GenHaxl u b) (HashMap.HashMap a (MemoVar u b))
+  | MemoTbl1 (a -> GenHaxl u w b) (HashMap.HashMap a (MemoVar u w b))
 
-data MemoStatus2 u a b c
+data MemoStatus2 u w a b c
   = MemoEmpty2
   | MemoTbl2
-      (a -> b -> GenHaxl u c)
-      (HashMap.HashMap a (HashMap.HashMap b (MemoVar u c)))
+      (a -> b -> GenHaxl u w c)
+      (HashMap.HashMap a (HashMap.HashMap b (MemoVar u w c)))
 
-newMemo1 :: GenHaxl u (MemoVar1 u a b)
+newMemo1 :: GenHaxl u w (MemoVar1 u w a b)
 newMemo1 = unsafeLiftIO $ MemoVar1 <$> newIORef MemoEmpty1
 
-newMemoWith1 :: (a -> GenHaxl u b) -> GenHaxl u (MemoVar1 u a b)
+newMemoWith1 :: (a -> GenHaxl u w b) -> GenHaxl u w (MemoVar1 u w a b)
 newMemoWith1 f = newMemo1 >>= \r -> prepareMemo1 r f >> return r
 
-prepareMemo1 :: MemoVar1 u a b -> (a -> GenHaxl u b) -> GenHaxl u ()
+prepareMemo1 :: MemoVar1 u w a b -> (a -> GenHaxl u w b) -> GenHaxl u w ()
 prepareMemo1 (MemoVar1 r) f
   = unsafeLiftIO $ writeIORef r (MemoTbl1 f HashMap.empty)
 
-runMemo1 :: (Eq a, Hashable a) => MemoVar1 u a b -> a -> GenHaxl u b
+runMemo1 :: (Eq a, Hashable a) => MemoVar1 u w a b -> a -> GenHaxl u w b
 runMemo1 (MemoVar1 r) k = unsafeLiftIO (readIORef r) >>= \case
   MemoEmpty1 -> throw $ CriticalError "Attempting to run empty memo."
   MemoTbl1 f h -> case HashMap.lookup k h of
@@ -262,19 +277,19 @@ runMemo1 (MemoVar1 r) k = unsafeLiftIO (readIORef r) >>= \case
       runMemo x
     Just v -> runMemo v
 
-newMemo2 :: GenHaxl u (MemoVar2 u a b c)
+newMemo2 :: GenHaxl u w (MemoVar2 u w a b c)
 newMemo2 = unsafeLiftIO $ MemoVar2 <$> newIORef MemoEmpty2
 
-newMemoWith2 :: (a -> b -> GenHaxl u c) -> GenHaxl u (MemoVar2 u a b c)
+newMemoWith2 :: (a -> b -> GenHaxl u w c) -> GenHaxl u w (MemoVar2 u w a b c)
 newMemoWith2 f = newMemo2 >>= \r -> prepareMemo2 r f >> return r
 
-prepareMemo2 :: MemoVar2 u a b c -> (a -> b -> GenHaxl u c) -> GenHaxl u ()
+prepareMemo2 :: MemoVar2 u w a b c -> (a -> b -> GenHaxl u w c) -> GenHaxl u w ()
 prepareMemo2 (MemoVar2 r) f
   = unsafeLiftIO $ writeIORef r (MemoTbl2 f HashMap.empty)
 
 runMemo2 :: (Eq a, Hashable a, Eq b, Hashable b)
-         => MemoVar2 u a b c
-         -> a -> b -> GenHaxl u c
+         => MemoVar2 u w a b c
+         -> a -> b -> GenHaxl u w c
 runMemo2 (MemoVar2 r) k1 k2 = unsafeLiftIO (readIORef r) >>= \case
   MemoEmpty2 -> throw $ CriticalError "Attempting to run empty memo."
   MemoTbl2 f h1 -> case HashMap.lookup k1 h1 of
@@ -301,12 +316,12 @@ runMemo2 (MemoVar2 r) k1 k2 = unsafeLiftIO (readIORef r) >>= \case
 -- they compute the same result.
 memo
   :: (Typeable a, Typeable k, Hashable k, Eq k)
-  => k -> GenHaxl u a -> GenHaxl u a
+  => k -> GenHaxl u w a -> GenHaxl u w a
 memo key = cachedComputation (MemoKey key)
 
 {-# RULES
 "memo/Text" memo = memoText :: (Typeable a) =>
-            Text -> GenHaxl u a -> GenHaxl u a
+            Text -> GenHaxl u w a -> GenHaxl u w a
  #-}
 
 {-# NOINLINE memo #-}
@@ -315,7 +330,7 @@ memo key = cachedComputation (MemoKey key)
 -- uniqueness across computations.
 memoUnique
   :: (Typeable a, Typeable k, Hashable k, Eq k)
-  => MemoFingerprintKey a -> Text -> k -> GenHaxl u a -> GenHaxl u a
+  => MemoFingerprintKey a -> Text -> k -> GenHaxl u w a -> GenHaxl u w a
 memoUnique fp label key = withLabel label . memo (fp, key)
 
 {-# NOINLINE memoUnique #-}
@@ -341,7 +356,7 @@ deriving instance Eq (MemoTextKey a)
 instance Hashable (MemoTextKey a) where
   hashWithSalt s (MemoText t) = hashWithSalt s t
 
-memoText :: (Typeable a) => Text -> GenHaxl u a -> GenHaxl u a
+memoText :: (Typeable a) => Text -> GenHaxl u w a -> GenHaxl u w a
 memoText key = withLabel key . cachedComputation (MemoText key)
 
 -- | A memo key derived from a 128-bit MD5 hash.  Do not use this directly,
@@ -371,7 +386,7 @@ instance Hashable (MemoFingerprintKey a) where
 --
 {-# NOINLINE memoFingerprint #-}
 memoFingerprint
-  :: Typeable a => MemoFingerprintKey a -> GenHaxl u a -> GenHaxl u a
+  :: Typeable a => MemoFingerprintKey a -> GenHaxl u w a -> GenHaxl u w a
 memoFingerprint key@(MemoFingerprintKey _ _ mnPtr nPtr) =
   withFingerprintLabel mnPtr nPtr . cachedComputation key
 
@@ -383,19 +398,19 @@ memoFingerprint key@(MemoFingerprintKey _ _ mnPtr nPtr) =
 -- in a @MemoVar@ (which @memoize@ creates), and returns the stored result on
 -- subsequent invocations. This permits the creation of local memos, whose
 -- lifetimes are scoped to the current function, rather than the entire request.
-memoize :: GenHaxl u a -> GenHaxl u (GenHaxl u a)
+memoize :: GenHaxl u w a -> GenHaxl u w (GenHaxl u w a)
 memoize a = runMemo <$> newMemoWith a
 
 -- | Transform a 1-argument function returning a Haxl computation into a
 -- memoized version of itself.
 --
--- Given a function @f@ of type @a -> GenHaxl u b@, @memoize1@ creates a version
+-- Given a function @f@ of type @a -> GenHaxl u w b@, @memoize1@ creates a version
 -- which memoizes the results of @f@ in a table keyed by its argument, and
 -- returns stored results on subsequent invocations with the same argument.
 --
 -- e.g.:
 --
--- > allFriends :: [Int] -> GenHaxl u [Int]
+-- > allFriends :: [Int] -> GenHaxl u w [Int]
 -- > allFriends ids = do
 -- >   memoizedFriendsOf <- memoize1 friendsOf
 -- >   concat <$> mapM memoizeFriendsOf ids
@@ -403,8 +418,8 @@ memoize a = runMemo <$> newMemoWith a
 -- The above implementation will not invoke the underlying @friendsOf@
 -- repeatedly for duplicate values in @ids@.
 memoize1 :: (Eq a, Hashable a)
-         => (a -> GenHaxl u b)
-         -> GenHaxl u (a -> GenHaxl u b)
+         => (a -> GenHaxl u w b)
+         -> GenHaxl u w (a -> GenHaxl u w b)
 memoize1 f = runMemo1 <$> newMemoWith1 f
 
 -- | Transform a 2-argument function returning a Haxl computation, into a
@@ -412,6 +427,6 @@ memoize1 f = runMemo1 <$> newMemoWith1 f
 --
 -- The 2-ary version of @memoize1@, see its documentation for details.
 memoize2 :: (Eq a, Hashable a, Eq b, Hashable b)
-         => (a -> b -> GenHaxl u c)
-         -> GenHaxl u (a -> b -> GenHaxl u c)
+         => (a -> b -> GenHaxl u w c)
+         -> GenHaxl u w (a -> b -> GenHaxl u w c)
 memoize2 f = runMemo2 <$> newMemoWith2 f

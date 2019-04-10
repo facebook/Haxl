@@ -32,10 +32,10 @@ deriving instance Show (TestReq a)
 instance Hashable (TestReq a) where
   hashWithSalt salt (Req i) = hashWithSalt salt i
 
-newResult :: a -> IO (IVar u a)
+newResult :: a -> IO (IVar u w a)
 newResult a = IVar <$> newIORef (IVarFull (Ok a))
 
-takeResult :: IVar u a -> IO (ResultVal a)
+takeResult :: IVar u w a -> IO (ResultVal a w)
 takeResult (IVar ref) = do
   e <- readIORef ref
   case e of

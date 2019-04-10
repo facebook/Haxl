@@ -12,14 +12,14 @@ import Facebook (Id(..), Friend(..), User(..))
 import Haxl.Core
 
 -- | Fetch an arbitrary object in the Facebook graph.
-getObject :: Id -> GenHaxl u Object
+getObject :: Id -> GenHaxl u w Object
 getObject id = dataFetch (GetObject id)
 
 -- | Fetch a Facebook user.
-getUser :: Id -> GenHaxl u User
+getUser :: Id -> GenHaxl u w User
 getUser id = dataFetch (GetUser id)
 
 -- | Fetch the friends of a Facebook user that are registered with the
 -- current app.
-getUserFriends :: Id -> GenHaxl u [Friend]
+getUserFriends :: Id -> GenHaxl u w [Friend]
 getUserFriends id = dataFetch (GetUserFriends id)

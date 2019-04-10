@@ -35,7 +35,7 @@ testEnv = do
   -- Create the Env:
   initEnv st ()
 
-useless :: String -> GenHaxl u Bool
+useless :: String -> GenHaxl u w Bool
 useless _ = throw (NotFound "ha ha")
 
 exceptions :: Assertion
