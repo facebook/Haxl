@@ -472,7 +472,7 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
         -- see Note [tracking allocation in child threads]
         allocs <- if isChildThread then getAllocationCounter else return 0
         updateFetchStats t0 (t1 - t0)
-          allocs
+          (negate allocs)
           1 -- batch size: we don't know if this is a batch or not
           (if isLeft result then 1 else 0) -- failures
         fn result isChildThread
