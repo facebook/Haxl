@@ -4,6 +4,7 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -16,6 +17,9 @@ module Haxl.Core.Run
   , runHaxlWithWrites
   ) where
 
+#if __GLASGOW_HASKELL__ <= 708
+import Control.Applicative ((<$>))
+#endif
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad
