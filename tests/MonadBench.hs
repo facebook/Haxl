@@ -5,7 +5,7 @@
 -- found in the LICENSE file.
 
 -- | Benchmarking tool for core performance characteristics of the Haxl monad.
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, OverloadedStrings #-}
 module MonadBench (main) where
 
 import Control.Monad
@@ -25,7 +25,9 @@ import Haxl.Core
 
 import ExampleDataSource
 
-testEnv :: IO (Env () ())
+newtype SimpleWrite = SimpleWrite Text deriving (Eq, Show)
+
+testEnv :: IO (Env () SimpleWrite)
 testEnv = do
   exstate <- ExampleDataSource.initGlobalState
   let st = stateSet exstate stateEmpty
@@ -88,6 +90,14 @@ main = do
                        | x <- take n $ cycle [100, 200 .. 1000]
                        , let y = x + 1000
                        ]
+    -- parallel writes
+    "write1" -> runHaxl env $
+      Haxl.sequence_ (replicate n (tellWrite (SimpleWrite "haha")))
+
+    -- sequential writes
+    "write2" -> runHaxl env $
+      foldr andThen (return ()) (replicate n (tellWrite (SimpleWrite "haha")))
+
 
     "cc1" -> runHaxl env $
       Haxl.sequence_ [ cachedComputation (ListWombats 1000) unionWombats
@@ -118,18 +128,18 @@ main = do
   -- can't use >>, it is aliased to *> and we want the real bind here
   andThen x y = x >>= const y
 
-tree :: Int -> GenHaxl () () [Id]
+tree :: Int -> GenHaxl () SimpleWrite [Id]
 tree 0 = listWombats 0
 tree n = concat <$> Haxl.sequence
   [ tree (n-1)
   , listWombats (fromIntegral n), tree (n-1)
   ]
 
-unionWombats :: GenHaxl () () [Id]
+unionWombats :: GenHaxl () SimpleWrite [Id]
 unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..1000]
 
-unionWombatsTo :: Id -> GenHaxl () () [Id]
+unionWombatsTo :: Id -> GenHaxl () SimpleWrite [Id]
 unionWombatsTo x = foldl List.union [] <$> Haxl.mapM listWombats [1..x]
 
-unionWombatsFromTo :: Id -> Id -> GenHaxl () () [Id]
+unionWombatsFromTo :: Id -> Id -> GenHaxl () SimpleWrite [Id]
 unionWombatsFromTo x y = foldl List.union [] <$> Haxl.mapM listWombats [x..y]
