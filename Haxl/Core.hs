@@ -91,6 +91,7 @@ module Haxl.Core (
     -- ** Utilities
   , except
   , setError
+  , getMapFromRCMap
 
     -- * Exceptions
   , module Haxl.Core.Exception
@@ -106,5 +107,6 @@ import Haxl.Core.Profile
 import Haxl.Core.Run
 import Haxl.Core.Stats
 import Haxl.Core.Exception
+import Haxl.Core.RequestStore (getMapFromRCMap)
 import Haxl.Core.ShowP (ShowP(..))
 import Haxl.Core.StateStore

@@ -386,5 +386,5 @@ submitFetch
   -> (forall a. service -> request a -> IO (IO (Either SomeException a)))
   -> BlockedFetch request
   -> IO (IO ())
-submitFetch service fetch (BlockedFetch request result)
-  = (putResult result =<<) <$> fetch service request
+submitFetch service fetchFn (BlockedFetch request result)
+  = (putResult result =<<) <$> fetchFn service request

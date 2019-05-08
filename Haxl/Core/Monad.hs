@@ -184,6 +184,12 @@ data Env u w = Env
        -- empty, either we're finished, or we're waiting for some data fetch
        -- to return.
 
+  , submittedReqsRef :: {-# UNPACK #-} !(IORef ReqCountMap)
+       -- ^ all outgone fetches which haven't yet returned. Entries are
+       -- removed from this map as the fetches fininsh. This field is
+       -- useful for tracking outgone fetches to detect downstream
+       -- failures.
+
   , completions :: {-# UNPACK #-} !(TVar [CompleteReq u w])
        -- ^ Requests that have completed.  Modified by data sources
        -- (via putResult) and the scheduler.  Waiting for this list to
@@ -216,8 +222,9 @@ initEnvWithData states e (cref, mref) = do
   pref <- newIORef emptyProfile
   rs <- newIORef noRequests          -- RequestStore
   rq <- newIORef JobNil
-  wl <- newIORef NilWrites
+  sr <- newIORef emptyReqCounts
   comps <- newTVarIO []              -- completion queue
+  wl <- newIORef NilWrites
   return Env
     { cacheRef = cref
     , memoRef = mref
@@ -229,6 +236,7 @@ initEnvWithData states e (cref, mref) = do
     , profRef = pref
     , reqStoreRef = rs
     , runQueueRef = rq
+    , submittedReqsRef = sr
     , completions = comps
     , pendingWaits = []
     , speculative = 0
