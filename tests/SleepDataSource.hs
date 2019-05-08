@@ -14,7 +14,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module SleepDataSource (
-    sleep,
+    Sleep, sleep,
   ) where
 
 import Haxl.Prelude

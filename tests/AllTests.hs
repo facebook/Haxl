@@ -13,6 +13,7 @@ import CoreTests
 import DataCacheTest
 #if __GLASGOW_HASKELL__ >= 801
 import AdoTests
+import OutgoneFetchesTests
 #endif
 #if __GLASGOW_HASKELL__ >= 710
 import ProfileTests
@@ -33,6 +34,7 @@ allTests = TestList
   , TestLabel "DataCacheTests" DataCacheTest.tests
 #if __GLASGOW_HASKELL__ >= 801
   , TestLabel "AdoTests" $ AdoTests.tests False
+  , TestLabel "OutgoneFetchesTest" OutgoneFetchesTests.tests
 #endif
 #if __GLASGOW_HASKELL__ >= 710
   , TestLabel "ProfileTests" ProfileTests.tests
