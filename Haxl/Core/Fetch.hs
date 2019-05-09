@@ -13,6 +13,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE KindSignatures #-}
 
 -- | Implementation of data-fetching operations.  Most users should
 -- import "Haxl.Core" instead.
@@ -40,6 +41,7 @@ import Data.List
 #if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
 #endif
+import Data.Proxy
 import Data.Typeable
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -94,7 +96,7 @@ type ShowReq r a = (r a -> String, a -> String)
 
 cachedWithInsert
   :: forall r a u w.
-     Typeable (r a)
+     (DataSource u r, Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
   -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w))
   -> Env u w -> r a -> IO (CacheResult u w a)
@@ -103,7 +105,8 @@ cachedWithInsert showFn insertFn Env{..} req = do
   let
     doFetch = do
       ivar <- newIVar
-      let !rvar = stdResultVar ivar completions
+      let !rvar = stdResultVar ivar completions submittedReqsRef flags
+            (Proxy :: Proxy r)
       writeIORef cacheRef $! insertFn req ivar cache
       return (Uncached rvar ivar)
   case DataCache.lookup req cache of
@@ -121,19 +124,31 @@ cachedWithInsert showFn insertFn Env{..} req = do
 
 
 -- | Make a ResultVar with the standard function for sending a CompletionReq
--- to the scheduler.
-stdResultVar :: IVar u w a -> TVar [CompleteReq u w] -> ResultVar a
-stdResultVar ivar completions = mkResultVar $ \r isChildThread -> do
-  allocs <- if isChildThread
-    then
-      -- In a child thread, return the current allocation counter too,
-      -- for correct tracking of allocation.
-      getAllocationCounter
-    else
-      return 0
-  atomically $ do
-    cs <- readTVar completions
-    writeTVar completions (CompleteReq r ivar allocs : cs)
+-- to the scheduler. This is the function will be executed when the fetch
+-- completes.
+stdResultVar
+  :: forall r a u w. (DataSourceName r, Typeable r)
+  => IVar u w a
+  -> TVar [CompleteReq u w]
+  -> IORef ReqCountMap
+  -> Flags
+  -> Proxy r
+  -> ResultVar a
+stdResultVar ivar completions ref flags p =
+  mkResultVar $ \r isChildThread -> do
+    allocs <- if isChildThread
+      then
+        -- In a child thread, return the current allocation counter too,
+        -- for correct tracking of allocation.
+        getAllocationCounter
+      else
+        return 0
+    -- Decrement the counter as request has finished
+    ifReport flags 1 $
+      atomicModifyIORef' ref (\m -> (subFromCountMap p 1 m, ()))
+    atomically $ do
+      cs <- readTVar completions
+      writeTVar completions (CompleteReq r ivar allocs : cs)
 {-# INLINE stdResultVar #-}
 
 
@@ -220,14 +235,17 @@ dataFetchWithInsert showFn insertFn req =
 -- This allows us to store the request in the cache when recording, which
 -- allows a transparent run afterwards. Without this, the test would try to
 -- call the datasource during testing and that would be an exception.
-uncachedRequest :: (DataSource u r, Request r a) => r a -> GenHaxl u w a
+uncachedRequest
+ :: forall a u w (r :: * -> *). (DataSource u r, Request r a)
+ => r a -> GenHaxl u w a
 uncachedRequest req = do
-  isRecordingFlag <- env (recording . flags)
-  if isRecordingFlag /= 0
+  flg <- env flags
+  subRef <- env submittedReqsRef
+  if recording flg /= 0
     then dataFetch req
     else GenHaxl $ \Env{..} -> do
       ivar <- newIVar
-      let !rvar = stdResultVar ivar completions
+      let !rvar = stdResultVar ivar completions subRef flg (Proxy :: Proxy r)
       modifyIORef' reqStoreRef $ \bs ->
         addRequest (BlockedFetch req rvar) bs
       return $ Blocked ivar (Cont (getIVar ivar))
@@ -360,7 +378,7 @@ performFetches n env@Env{flags=f, statsRef=sref} jobs = do
 
   fetches <- zipWithM applyFetch [n..] jobs
 
-  waits <- scheduleFetches fetches
+  waits <- scheduleFetches fetches (submittedReqsRef env) (flags env)
 
   t1 <- getTimestamp
   let roundtime = fromIntegral (t1 - t0) / 1000000 :: Double
@@ -371,7 +389,9 @@ performFetches n env@Env{flags=f, statsRef=sref} jobs = do
   return (n', waits)
 
 data FetchToDo where
-  FetchToDo :: [BlockedFetch req] -> PerformFetch req -> FetchToDo
+  FetchToDo
+    :: forall (req :: * -> *). (DataSourceName req, Typeable req)
+    => [BlockedFetch req] -> PerformFetch req -> FetchToDo
 
 -- Catch exceptions arising from the data source and stuff them into
 -- the appropriate requests.  We don't want any exceptions propagating
@@ -526,22 +546,31 @@ time io = do
 
 -- | Start all the async fetches first, then perform the sync fetches before
 -- getting the results of the async fetches.
-scheduleFetches :: [FetchToDo] -> IO [IO ()]
-scheduleFetches fetches = do
+scheduleFetches :: [FetchToDo] -> IORef ReqCountMap -> Flags -> IO [IO ()]
+scheduleFetches fetches ref flags = do
+  -- update ReqCountmap for these fetches
+  ifReport flags 1 $ sequence_
+    [ atomicModifyIORef' ref $
+        \m -> (addToCountMap (Proxy :: Proxy r) (length reqs) m, ())
+    | FetchToDo (reqs :: [BlockedFetch r]) _f <- fetches
+    ]
   fully_async_fetches
   waits <- future_fetches
   async_fetches sync_fetches
   return waits
  where
   fully_async_fetches :: IO ()
-  fully_async_fetches =
-    sequence_ [f reqs | FetchToDo reqs (BackgroundFetch f) <- fetches]
+  fully_async_fetches = sequence_
+    [f reqs | FetchToDo reqs (BackgroundFetch f) <- fetches]
 
   future_fetches :: IO [IO ()]
-  future_fetches = sequence [f reqs | FetchToDo reqs (FutureFetch f) <- fetches]
+  future_fetches = sequence
+    [f reqs | FetchToDo reqs (FutureFetch f) <- fetches]
 
   async_fetches :: IO () -> IO ()
-  async_fetches = compose [f reqs | FetchToDo reqs (AsyncFetch f) <- fetches]
+  async_fetches = compose
+    [f reqs | FetchToDo reqs (AsyncFetch f) <- fetches]
 
   sync_fetches :: IO ()
-  sync_fetches = sequence_ [f reqs | FetchToDo reqs (SyncFetch f) <- fetches]
+  sync_fetches = sequence_
+    [f reqs | FetchToDo reqs (SyncFetch f) <- fetches]

@@ -33,7 +33,7 @@ data Flags = Flags
   , report :: {-# UNPACK #-} !Int
     -- ^ Report level:
     --    * 0 = quiet
-    --    * 1 = quiet (legacy, this used to do something)
+    --    * 1 = outgone fetches, for debugging eg: timeouts
     --    * 2 = data fetch stats & errors
     --    * 3 = (same as 2, this used to enable errors)
     --    * 4 = profiling

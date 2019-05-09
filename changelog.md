@@ -1,3 +1,9 @@
+# Changes in version 2.1.1.0
+
+  * Adds feature to track outgone datasource fetches. This is only turned on
+    for report level greater than 1. The fetches are stored as a running Map
+    in the env ('submittedReqsRef').
+
 # Changes in version 2.1.0.0
 
   * Add a new 'w' parameter to 'GenHaxl' to allow arbitrary writes during

@@ -7,7 +7,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 -- | Bucketing requests by 'DataSource'.
 --
 -- When a request is issued by the client via 'dataFetch', it is placed
@@ -25,11 +27,22 @@ module Haxl.Core.RequestStore
   , noRequests
   , addRequest
   , contents
+  , ReqCountMap(..)
+  , emptyReqCounts
+  , filterRCMap
+  , getMapFromRCMap
+  , addToCountMap
+  , subFromCountMap
   ) where
 
+#if __GLASGOW_HASKELL__ <= 708
+import Control.Applicative ((<$>))
+#endif
 import Haxl.Core.DataSource
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+import Data.Proxy
+import Data.Text (Text)
 import Data.Typeable
 import Unsafe.Coerce
 
@@ -72,8 +85,67 @@ addRequest bf (RequestStore m) =
 
   -- The TypeRep of requests for this data source
   ty :: TypeRep
-  ty = typeOf1 (undefined :: r a)
+  !ty = typeOf1 (undefined :: r a)
 
 -- | Retrieves the whole contents of the 'RequestStore'.
 contents :: RequestStore u -> [BlockedFetches u]
 contents (RequestStore m) = Map.elems m
+
+-- A counter to keep track of outgone requests. Entries are added to this
+-- map as we send requests to datasources, and removed as these fetches
+-- are completed.
+-- This is a 2 level map: the 1st level stores requests for a particular
+-- datasource, the 2nd level stores count of requests per type.
+newtype ReqCountMap = ReqCountMap (Map Text (Map TypeRep Int))
+  deriving (Show)
+
+emptyReqCounts :: ReqCountMap
+emptyReqCounts = ReqCountMap Map.empty
+
+addToCountMap
+  :: forall (r :: * -> *). (DataSourceName r, Typeable r)
+  => Proxy r
+  -> Int -- type and number of requests
+  -> ReqCountMap
+  -> ReqCountMap
+addToCountMap = updateCountMap (+)
+
+subFromCountMap
+  :: forall (r :: * -> *). (DataSourceName r, Typeable r)
+  => Proxy r
+  -> Int -- type and number of requests
+  -> ReqCountMap
+  -> ReqCountMap
+subFromCountMap = updateCountMap (-)
+
+updateCountMap
+  :: forall (r :: * -> *). (DataSourceName r, Typeable r)
+  => (Int -> Int -> Int)
+  -> Proxy r
+  -> Int -- type and number of requests
+  -> ReqCountMap
+  -> ReqCountMap
+updateCountMap op p n (ReqCountMap m) = ReqCountMap $ Map.insertWith
+  (flip (Map.unionWith op)) -- flip is important as "op" is not commutative
+  (dataSourceName p) (Map.singleton ty n)
+  m
+  where
+    -- The TypeRep of requests for this data source
+    -- The way this is implemented, all elements in the 2nd level map will be
+    -- mapped to the same key, as all requests to a datasource have the same
+    -- "type". It will be more beneficial to be able to instead map requests
+    -- to their names (ie, data constructor) - but there's no cheap way of doing
+    -- that.
+    ty :: TypeRep
+    !ty = typeOf1 (undefined :: r a)
+
+-- Filter all keys with 0 fetches. Since ReqCountMap is a 2-level map, we need
+-- nested filter operations.
+filterRCMap :: ReqCountMap -> ReqCountMap
+filterRCMap (ReqCountMap m) = ReqCountMap $
+  Map.filter ((> 0) . Map.size) (Map.filter (> 0) <$> m)
+
+-- Filters the ReqCountMap by default
+getMapFromRCMap :: ReqCountMap -> Map Text (Map TypeRep Int)
+getMapFromRCMap r
+  | ReqCountMap m <- filterRCMap r = m
