@@ -132,6 +132,7 @@ test-suite test
   if impl(ghc >= 8.0)
     other-modules:
       AdoTests
+      OutgoneFetchesTests
 
   other-modules:
     AllTests
