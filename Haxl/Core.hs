@@ -7,6 +7,7 @@
 -- | Everything needed to define data sources and to invoke the
 -- engine.
 --
+{-# LANGUAGE CPP #-}
 module Haxl.Core (
     -- * The monad and operations
     GenHaxl (..), runHaxl, runHaxlWithWrites
@@ -95,8 +96,12 @@ module Haxl.Core (
 
     -- * Exceptions
   , module Haxl.Core.Exception
+
+    -- * Recording the function callgraph
+  , module Haxl.Core.CallGraph
   ) where
 
+import Haxl.Core.CallGraph
 import Haxl.Core.DataSource
 import Haxl.Core.Flags
 import Haxl.Core.Memo

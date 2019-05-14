@@ -100,6 +100,11 @@ module Haxl.Core.Monad
   , dumpCacheAsHaskell
   , dumpCacheAsHaskellFn
 
+    -- * CallGraph
+#ifdef PROFILING
+  , withCallGraph
+#endif
+
     -- * Unsafe operations
   ,  unsafeLiftIO, unsafeToHaxlException
   ) where
@@ -135,7 +140,11 @@ import Debug.Trace (traceEventIO)
 #endif
 
 #ifdef PROFILING
+import qualified Data.Map as Map
+import Data.Text (Text)
+import Data.Typeable
 import GHC.Stack
+import Haxl.Core.CallGraph
 #endif
 
 
@@ -207,6 +216,14 @@ data Env u w = Env
        -- ^ A log of all writes done as part of this haxl computation. Any
        -- haxl computation that needs to be memoized runs in its own
        -- environment so
+#ifdef PROFILING
+  , callGraphRef ::  Maybe (IORef CallGraph)
+       -- ^ An edge list representing the current function call graph. The type
+       -- is wrapped in a Maybe to avoid changing the existing callsites.
+
+  , currFunction :: QualFunction
+       -- ^ The most recent function call.
+#endif
   }
 
 type Caches u w = (IORef (DataCache (IVar u w)), IORef (DataCache (IVar u w)))
@@ -241,6 +258,10 @@ initEnvWithData states e (cref, mref) = do
     , pendingWaits = []
     , speculative = 0
     , writeLogsRef = wl
+#ifdef PROFILING
+    , callGraphRef = Nothing
+    , currFunction = mainFunction
+#endif
     }
 
 -- | Initializes an environment with 'StateStore' and an input map.
@@ -729,6 +750,36 @@ withEnv newEnv (GenHaxl m) = GenHaxl $ \_env -> do
     Blocked ivar k ->
       return (Blocked ivar (Cont (withEnv newEnv (toHaxl k))))
 
+#ifdef PROFILING
+-- -----------------------------------------------------------------------------
+-- CallGraph recording
+
+-- | Returns a version of the Haxl computation which records function calls in
+-- an edge list which is the function call graph. Each function that is to be
+-- recorded must be wrapped with a call to @withCallGraph@.
+withCallGraph
+  :: Typeable a
+  => (a -> Maybe Text)
+  -> QualFunction
+  -> GenHaxl u () a
+  -> GenHaxl u () a
+withCallGraph toText f a = do
+  coreEnv <- env id
+  -- TODO: Handle exceptions
+  value <- withEnv coreEnv{currFunction = f} a
+  case callGraphRef coreEnv of
+    Just graph -> unsafeLiftIO $ modifyIORef' graph
+      (updateCallGraph (f, currFunction coreEnv) (toText value))
+    _ -> throw $ CriticalError
+      "withCallGraph called without an IORef CallGraph"
+  return value
+  where
+    updateCallGraph :: FunctionCall -> Maybe Text -> CallGraph -> CallGraph
+    updateCallGraph fnCall@(childQFunc, _) (Just value) (edgeList, valueMap) =
+      (fnCall : edgeList, Map.insert childQFunc value valueMap)
+    updateCallGraph fnCall Nothing (edgeList, valueMap) =
+      (fnCall : edgeList, valueMap)
+#endif
 
 -- -----------------------------------------------------------------------------
 -- Exceptions

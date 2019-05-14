@@ -1,5 +1,10 @@
-# Changes in version 2.1.1.0
+# Changes in version 2.1.2.0
 
+  * Add a callgraph reference to 'Env' to record the function callgraph during a
+    computation. The callgraph is stored as an edge list in the Env through the
+    use of `withCallGraph` and enables users to debug a Haxl computation.
+
+# Changes in version 2.1.1.0
   * Adds feature to track outgone datasource fetches. This is only turned on
     for report level greater than 1. The fetches are stored as a running Map
     in the env ('submittedReqsRef').

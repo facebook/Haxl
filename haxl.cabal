@@ -1,5 +1,5 @@
 name:                haxl
-version:             2.0.1.1
+version:             2.1.2.0
 synopsis:            A Haskell library for efficient, concurrent,
                      and concise data access.
 homepage:            https://github.com/facebook/Haxl
@@ -68,6 +68,7 @@ library
 
   exposed-modules:
     Haxl.Core,
+    Haxl.Core.CallGraph,
     Haxl.Core.DataCache,
     Haxl.Core.DataSource,
     Haxl.Core.Exception,
