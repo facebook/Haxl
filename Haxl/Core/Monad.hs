@@ -761,8 +761,8 @@ withCallGraph
   :: Typeable a
   => (a -> Maybe Text)
   -> QualFunction
-  -> GenHaxl u () a
-  -> GenHaxl u () a
+  -> GenHaxl u w a
+  -> GenHaxl u w a
 withCallGraph toText f a = do
   coreEnv <- env id
   -- TODO: Handle exceptions
