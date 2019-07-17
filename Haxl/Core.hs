@@ -29,7 +29,7 @@ module Haxl.Core (
 
     -- ** Data fetching and caching
   , dataFetch, uncachedRequest
-  , cacheRequest, cacheResult, cacheResultWithShow
+  , cacheRequest, dupableCacheRequest, cacheResult, cacheResultWithShow
   , cachedComputation, preCacheComputation
   , dumpCacheAsHaskell
 

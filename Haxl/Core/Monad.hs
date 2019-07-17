@@ -868,15 +868,18 @@ tryToHaxlException h = left asHaxlException <$> try (unsafeToHaxlException h)
 -- >   cacheRequest (CountAardvarks "abcabc") (Right (2))
 --
 dumpCacheAsHaskell :: GenHaxl u w String
-dumpCacheAsHaskell = dumpCacheAsHaskellFn "loadCache" "GenHaxl u w ()"
+dumpCacheAsHaskell =
+    dumpCacheAsHaskellFn "loadCache" "GenHaxl u w ()" "cacheRequest"
 
 -- | Dump the contents of the cache as Haskell code that, when
 -- compiled and run, will recreate the same cache contents.
 -- Does not take into account the writes done as part of the computation.
 --
 -- Takes the name and type for the resulting function as arguments.
-dumpCacheAsHaskellFn :: String -> String -> GenHaxl u w String
-dumpCacheAsHaskellFn fnName fnType = do
+-- Also takes the cacheFn to use, we can use either @cacheRequest@ or
+-- @dupableCacheRequest@.
+dumpCacheAsHaskellFn :: String -> String -> String -> GenHaxl u w String
+dumpCacheAsHaskellFn fnName fnType cacheFn = do
   ref <- env cacheRef  -- NB. cacheRef, not memoRef.  We ignore memoized
                        -- results when dumping the cache.
   let
@@ -889,7 +892,7 @@ dumpCacheAsHaskellFn fnName fnType = do
         IVarEmpty _ -> return Nothing
 
     mk_cr (req, res) =
-      text "cacheRequest" <+> parens (text req) <+> parens (result res)
+      text cacheFn <+> parens (text req) <+> parens (result res)
     result (Left e) = text "except" <+> parens (text (show e))
     result (Right s) = text "Right" <+> parens (text s)
 

@@ -23,6 +23,7 @@ module Haxl.Core.Fetch
   , dataFetchWithShow
   , uncachedRequest
   , cacheResult
+  , dupableCacheRequest
   , cacheResultWithShow
   , cacheRequest
   , performFetches
@@ -319,11 +320,24 @@ cacheRequest request result = GenHaxl $ \env -> do
       writeIORef (cacheRef env) $! DataCache.insert request cr cache
       return (Done ())
 
-    -- It is an error if the request is already in the cache.  We can't test
-    -- whether the cached result is the same without adding an Eq constraint,
-    -- and we don't necessarily have Eq for all results.
+    -- It is an error if the request is already in the cache.
+    -- We can't test whether the cached result is the same without adding an
+    -- Eq constraint, and we don't necessarily have Eq for all results.
     _other -> raise $
       DataSourceError "cacheRequest: request is already in the cache"
+
+-- | Similar to @cacheRequest@ but doesn't throw an exception if the key
+-- already exists in the cache.
+-- If this function is called twice to cache the same Haxl request, the first
+-- value will be discarded and overwritten with the second value.
+-- Useful e.g. for unit tests
+dupableCacheRequest
+  :: Request req a => req a -> Either SomeException a -> GenHaxl u w ()
+dupableCacheRequest request result = GenHaxl $ \env -> do
+  cache <- readIORef (cacheRef env)
+  cr <- newFullIVar (eitherToResult result)
+  writeIORef (cacheRef env) $! DataCache.insert request cr cache
+  return (Done ())
 
 performRequestStore
    :: forall u w. Int -> Env u w -> RequestStore u -> IO (Int, [IO ()])
