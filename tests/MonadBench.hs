@@ -124,9 +124,6 @@ main = do
   t1 <- getCurrentTime
   printf "%10s: %10d reqs: %.2fs\n"
     test n (realToFrac (t1 `diffUTCTime` t0) :: Double)
- where
-  -- can't use >>, it is aliased to *> and we want the real bind here
-  andThen x y = x >>= const y
 
 tree :: Int -> GenHaxl () SimpleWrite [Id]
 tree 0 = listWombats 0

@@ -44,6 +44,7 @@ module Haxl.Prelude (
     foldl', sort,
     Monoid(..),
     join,
+    andThen,
 
     -- * Lifted operations
     IfThenElse(..),
@@ -196,6 +197,25 @@ filterM predicate xs =
     filt <$> mapM predicate xs
   where
     filt bools = [ x | (x,True) <- zip xs bools ]
+
+-- | In somes cases, we do want the monadic version of @('>>')@ to disable
+-- concurrency and start one computation only after the other finishes, e.g.:
+--
+-- @
+-- deferedFetch x = do
+--   sleep 5
+--   fetch x  -- fetch will actually run concurrently with sleep
+-- @
+--
+-- But we have defined @('>>') = ('*>')@ with the applicative behavior as this
+-- is desired in most cases, so instead we define 'andThen' as the monadic
+-- version of @('>>')@:
+--
+-- @
+-- deferedFetch x = sleep 5 `andThen` fetch x
+-- @
+andThen :: Monad m => m a -> m b -> m b
+andThen a b = a >>= \_ -> b
 
 --------------------------------------------------------------------------------
 
