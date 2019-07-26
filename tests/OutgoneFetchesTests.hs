@@ -16,7 +16,6 @@ import Haxl.DataSource.ConcurrentIO
 import Haxl.Core.RequestStore (getMapFromRCMap)
 
 import Data.IORef
-import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Proxy (Proxy(..))
 import Data.Typeable
@@ -26,6 +25,7 @@ import System.Timeout
 import ExampleDataSource
 import SleepDataSource
 
+testEnv :: IO (Env () ())
 testEnv = do
   exstate <- ExampleDataSource.initGlobalState
   sleepState <- mkConcurrentIOState
@@ -38,100 +38,44 @@ testEnv = do
 wombats :: GenHaxl () () Int
 wombats = length <$> listWombats 3
 
-getFetches :: Env () () -> IO (Map Text (Map TypeRep Int))
-getFetches env = getMapFromRCMap <$> readIORef (submittedReqsRef env)
-
-outgoneFetchesTest :: Test
-outgoneFetchesTest = TestCase $ do
-  let
-    withTimeout env h = timeout 2000 $ runHaxl env h -- 2 ms
-
-  -- test that a completed datasource fetch doesn't show up in Env
+outgoneFetchesTest :: String -> Int -> GenHaxl () () a -> Test
+outgoneFetchesTest label unfinished haxl = TestLabel label $ TestCase $ do
   env <- testEnv
+  _ <- timeout (100*1000) $ runHaxl env haxl -- 100ms
+  actual <- getMapFromRCMap <$> readIORef (submittedReqsRef env)
+  assertEqual "fetchesMap" expected actual
+  where
+  expected = if unfinished == 0 then Map.empty else
+    Map.singleton (dataSourceName (Proxy :: Proxy (ConcurrentIOReq Sleep))) $
+      Map.singleton (typeOf1 (undefined :: ConcurrentIOReq Sleep a)) unfinished
 
-  withTimeout env $ do
-    _ <- sleep 1 -- 1 ms
-    _ <- sleep 1 -- should be cached
-    _ <- sleep 1
-    wombats
-
-  fetchesMap <- getFetches env
-  assertEqual "outgoneFetches1" 0 (Map.size fetchesMap)
-
-  -- test that unfinished datasource fetches shows up in Env
-  env <- testEnv
-
-  withTimeout env $ do
-    _ <- sleep 4 -- 4 ms
-    _ <- wombats
-    _ <- sleep 5 -- 4 ms
-    _  <- wombats
-    return ()
-
-  fetchesMap <- getFetches env
-  assertEqual "outgoneFetches2" 1 (Map.size fetchesMap)
-  assertEqual "outgoneFetches2"
-    (Map.fromList
-      [ ( dataSourceName (Proxy :: Proxy (ConcurrentIOReq Sleep))
-        , Map.fromList [(typeOf1 (undefined :: ConcurrentIOReq Sleep a), 2)]
-        )
-      ])
-    fetchesMap
-
-  -- test for finished/unfinished fetches from the same datasource
-  env <- testEnv
-
-  withTimeout env $ do
-    _ <- sleep 1 -- 1 ms
-    _ <- sleep 4
-    _ <- sleep 5
-    return ()
-
-  fetchesMap <- getFetches env
-  assertEqual "outgoneFetches3"
-    (Map.fromList
-      [ ( dataSourceName (Proxy :: Proxy (ConcurrentIOReq Sleep))
-        , Map.fromList [(typeOf1 (undefined :: ConcurrentIOReq Sleep a), 2)]
-        )
-      ])
-    fetchesMap
-
-  -- test for cached requests not showing up twice in ReqCountMap
-  env <- testEnv
-
-  withTimeout env $ do
-    _ <- sleep 4 -- 3 ms
-    _ <- sleep 4
-    return ()
-
-  fetchesMap <- getFetches env
-  assertEqual "outgoneFetches4"
-    (Map.fromList
-      [ ( dataSourceName (Proxy :: Proxy (ConcurrentIOReq Sleep))
-        , Map.fromList [(typeOf1 (undefined :: ConcurrentIOReq Sleep a), 1)]
-        )
-      ])
-    fetchesMap
-
-  -- test for unsent requests not showing up in ReqCountMap
-  env <- testEnv
-
-  withTimeout env $ do
-    _ <- sleep =<< sleep 4 -- second req should never be sent
-    return ()
-
-  fetchesMap <- getFetches env
-  assertEqual "outgoneFetches5"
-    (Map.fromList
-      [ ( dataSourceName (Proxy :: Proxy (ConcurrentIOReq Sleep))
-        , Map.fromList [(typeOf1 (undefined :: ConcurrentIOReq Sleep a), 1)]
-        )
-      ])
-    fetchesMap
-
-
-
-
+tests :: Test
 tests = TestList
-  [ TestLabel "outgoneFetchesTest" outgoneFetchesTest
+  [ outgoneFetchesTest "finished" 0 $ do
+      -- test that a completed datasource fetch doesn't show up in Env
+      _ <- sleep 50   -- finished
+      _ <- sleep 50   -- cached/finished
+      _ <- sleep 50   -- cached/finished
+      wombats
+  , outgoneFetchesTest "unfinished" 2 $ do
+      -- test that unfinished datasource fetches shows up in Env
+      _ <- sleep 200 -- unfinished
+      _ <- wombats
+      _ <- sleep 300 -- unfinished
+      _  <- wombats
+      return ()
+  , outgoneFetchesTest "mixed" 2 $ do
+      -- test for finished/unfinished fetches from the same datasource
+      _ <- sleep 50   -- finished
+      _ <- sleep 200  -- unfinished
+      _ <- sleep 300  -- unfinished
+      return ()
+  , outgoneFetchesTest "cached" 1 $ do
+      -- test for cached requests not showing up twice in ReqCountMap
+      _ <- sleep 200  -- unfinished
+      _ <- sleep 200  -- cached/unfinished
+      return ()
+  , outgoneFetchesTest "unsent" 1 $
+      -- test for unsent requests not showing up in ReqCountMap
+      sleep 200 `andThen` sleep 300 -- second req should never be sent
   ]
