@@ -58,6 +58,7 @@ import Haxl.Core.DataCache as DataCache
 import Haxl.Core.Flags
 import Haxl.Core.Monad
 import Haxl.Core.Profile
+import Haxl.Core.Util (trace_)
 
 -- -----------------------------------------------------------------------------
 -- Memoization
@@ -197,14 +198,15 @@ runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
   stored <- readIORef memoRef
   case stored of
     -- Memo was not prepared first; throw an exception.
-    MemoEmpty -> raise $ CriticalError "Attempting to run empty memo."
+    MemoEmpty -> trace_ "MemoEmpty " $
+      raise $ CriticalError "Attempting to run empty memo."
     -- Memo has been prepared but not run yet
-    MemoReady cont -> do
+    MemoReady cont -> trace_ "MemoReady" $ do
       ivar <- newIVar
       writeIORef memoRef (MemoRun ivar)
       unHaxl (execMemoNow cont ivar) env
     -- The memo has already been run, get (or wait for) for the result
-    MemoRun ivar -> unHaxl (getIVarWithWrites ivar) env
+    MemoRun ivar -> trace_ "MemoRun" $ unHaxl (getIVarWithWrites ivar) env
 
 
 execMemoNow :: GenHaxl u w a -> IVar u w a -> GenHaxl u w a
@@ -218,21 +220,21 @@ execMemoNow cont ivar = GenHaxl $ \env -> do
   r <- Exception.try $ unHaxl cont ienv
 
   case r of
-    Left e -> do
+    Left e -> trace_ ("execMemoNow: Left " ++ show e) $ do
       rethrowAsyncExceptions e
       putIVar ivar (ThrowIO e) env
       throwIO e
-    Right (Done a) -> do
+    Right (Done a) -> trace_ "execMemoNow: Done" $ do
       wt <- readIORef wlogs
       putIVar ivar (Ok a wt) env
       mbModifyWLRef wt (writeLogsRef env)
       return (Done a)
-    Right (Throw ex) -> do
+    Right (Throw ex) -> trace_ ("execMemoNow: Throw" ++ show ex) $ do
       wt <- readIORef wlogs
       putIVar ivar (ThrowHaxl ex wt) env
       mbModifyWLRef wt (writeLogsRef env)
       return (Throw ex)
-    Right (Blocked ivar' cont) -> do
+    Right (Blocked ivar' cont) -> trace_ "execMemoNow: Blocked" $ do
       -- We "block" this memoized computation in the new environment 'ienv', so
       -- that when it finishes, we can store all the write logs from the env
       -- in the IVar.
