@@ -115,6 +115,7 @@ import Haxl.Core.StateStore
 import Haxl.Core.Exception
 import Haxl.Core.RequestStore as RequestStore
 import Haxl.Core.DataCache as DataCache
+import Haxl.Core.Util (trace_)
 
 import Control.Arrow (left)
 import Control.Concurrent.STM
@@ -146,11 +147,6 @@ import Data.Typeable
 import GHC.Stack
 import Haxl.Core.CallGraph
 #endif
-
-
-trace_ :: String -> a -> a
-trace_ _ = id
---trace_ = Debug.Trace.trace
 
 -- -----------------------------------------------------------------------------
 -- The environment
