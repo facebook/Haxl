@@ -323,10 +323,12 @@ mbModifyWLRef !wt ref = modifyIORef' ref (`appendWTs` wt)
 --    of the scheduler, including unfetched requests and the run queue
 --    of computations.
 --
--- * It is a writer monad for 'WriteTree'. We strongly advise these be
---   used only for logs used for debugging. These are not memoized.
---   Other relevant writes should be returned as function output,
---   which is the more "functional" way.
+--  * It is a writer monad for 'WriteTree'. These can be used to do 
+--    arbitrary "logs" from any Haxl computation. These are better than
+--    doing arbitrary IO from a Haxl computation as these writes also get
+--    memoized if the Haxl computation associated with them is memoized.
+--    Now if this memoized computation is run again, you'll get the writes
+--    twice.
 
 --  * It is a concurrency, or resumption, monad. A computation may run
 --    partially and return 'Blocked', in which case the framework should

@@ -13,7 +13,7 @@
 
   * Add a new 'w' parameter to 'GenHaxl' to allow arbitrary writes during
     a computation. These writes are stored as a running log in the Env,
-    and are not memoized. This allows users to extract information from
+    and are memoized. This allows users to extract information from
     a Haxl computation which throws. Our advise is to limit these writes to
     monitoring and debugging logs.
 
