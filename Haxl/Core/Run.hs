@@ -213,7 +213,7 @@ runHaxlWithWrites env@Env{..} haxl = do
 {- Note [runHaxl and unfinished requests]
 
 runHaxl returns immediately when the supplied computation has returned
-a result.  This doesn't necessarily mean that the whole computaiton
+a result.  This doesn't necessarily mean that the whole computation
 graph has completed, however.  In particular, when using pAnd and pOr,
 we might have created some data fetches that have not completed, but
 weren't required, because the other branch of the pAnd/pOr subsumed
