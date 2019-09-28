@@ -9,7 +9,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -368,7 +367,7 @@ asyncFetchAcquireRelease
     r1 <- tryWithRethrow acquire
     case r1 of
       Left err -> do restore inner; throwIO (err :: SomeException)
-      Right service -> do
+      Right service ->
         flip finally (release service) $ restore $ do
           r2 <- tryWithRethrow $ do
             getResults <- mapM (submitFetch service enqueue) requests

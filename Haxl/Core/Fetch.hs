@@ -7,7 +7,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -205,7 +204,7 @@ dataFetchWithInsert showFn insertFn req =
         SubmitImmediately -> do
           (_,ios) <- performFetches 0 env
             [BlockedFetches [BlockedFetch req rvar]]
-          when (not (null ios)) $
+          unless (null ios) $
             error "bad data source:SubmitImmediately but returns FutureFetch"
         TryToBatch ->
           -- add the request to the RequestStore and continue
@@ -453,7 +452,7 @@ wrapFetchInStats
   -> PerformFetch req
   -> PerformFetch req
 
-wrapFetchInStats !statsRef dataSource batchSize perform = do
+wrapFetchInStats !statsRef dataSource batchSize perform =
   case perform of
     SyncFetch f ->
       SyncFetch $ \reqs -> do
@@ -461,7 +460,7 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
         (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount fail_ref) reqs))
         failures <- readIORef fail_ref
         updateFetchStats t0 t alloc batchSize failures
-    AsyncFetch f -> do
+    AsyncFetch f ->
       AsyncFetch $ \reqs inner -> do
         inner_r <- newIORef (0, 0)
         fail_ref <- newIORef 0
@@ -484,7 +483,7 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
           failures <- readIORef fail_ref
           updateFetchStats t0 (submitTime + waitTime) (submitAlloc + waitAlloc)
             batchSize failures
-    BackgroundFetch io -> do
+    BackgroundFetch io ->
       BackgroundFetch $ \reqs -> do
         startTime <- getTimestamp
         io (map (addTimer startTime) reqs)

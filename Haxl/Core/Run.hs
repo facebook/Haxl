@@ -115,7 +115,7 @@ runHaxlWithWrites env@Env{..} haxl = do
     -- sent eagerly by using schedulerHint.
     --
     reschedule :: Env u w -> JobList u w -> IO ()
-    reschedule env@Env{..} haxls = do
+    reschedule env@Env{..} haxls =
       case haxls of
         JobNil -> do
           rq <- readIORef runQueueRef
@@ -132,7 +132,7 @@ runHaxlWithWrites env@Env{..} haxl = do
       ifTrace flags 3 $ printf "emptyRunQueue\n"
       haxls <- checkCompletions env
       case haxls of
-        JobNil -> do
+        JobNil ->
           case pendingWaits of
             [] -> checkRequestStore env
             wait:waits -> do

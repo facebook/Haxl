@@ -117,13 +117,13 @@ instance Num a => Num (GenHaxl u w a) where
   (-)         = liftA2 (-)
   (*)         = liftA2 (*)
   fromInteger = pure . fromInteger
-  abs         = liftA abs
-  signum      = liftA signum
-  negate      = liftA negate
+  abs         = fmap abs
+  signum      = fmap signum
+  negate      = fmap negate
 
 instance Fractional a => Fractional (GenHaxl u w a) where
   (/) = liftA2 (/)
-  recip = liftA recip
+  recip = fmap recip
   fromRational = return . fromRational
 
 -- -----------------------------------------------------------------------------
@@ -215,7 +215,7 @@ filterM predicate xs =
 -- deferedFetch x = sleep 5 `andThen` fetch x
 -- @
 andThen :: Monad m => m a -> m b -> m b
-andThen a b = a >>= \_ -> b
+andThen a b = a >>= const b
 
 --------------------------------------------------------------------------------
 

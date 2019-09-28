@@ -21,7 +21,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -29,7 +28,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- The implementation of the 'Haxl' monad.  Most users should
@@ -692,7 +690,7 @@ instance Applicative (GenHaxl u w) where
              return (Blocked ivar1 (($ a) :<$> fcont))
            Throw e -> trace_ "Blocked/Throw" $
              return (Blocked ivar1 (fcont :>>= (\_ -> throw e)))
-           Blocked ivar2 acont -> trace_ "Blocked/Blocked" $ do
+           Blocked ivar2 acont -> trace_ "Blocked/Blocked" $
              -- Note [Blocked/Blocked]
               if speculative env /= 0
                 then

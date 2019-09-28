@@ -77,7 +77,7 @@ instance
   (Typeable tag, ShowP (ConcurrentIOReq tag), ConcurrentIO tag)
   => DataSource u (ConcurrentIOReq tag)
  where
-  fetch _state _flags _u = BackgroundFetch $ \bfs -> do
+  fetch _state _flags _u = BackgroundFetch $ \bfs ->
     forM_ bfs $ \(BlockedFetch req rv) ->
       mask $ \unmask ->
         forkFinally (unmask (performIO req)) (putResultFromChildThread rv)
