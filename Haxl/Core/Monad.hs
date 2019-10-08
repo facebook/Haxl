@@ -44,7 +44,9 @@ module Haxl.Core.Monad
     -- * Writes (for debugging only)
   , WriteTree(..)
   , tellWrite
+  , tellWriteNoMemo
   , write
+  , writeNoMemo
   , flattenWT
   , appendWTs
   , mbModifyWLRef
@@ -211,7 +213,12 @@ data Env u w = Env
   , writeLogsRef :: {-# UNPACK #-} !(IORef (WriteTree w))
        -- ^ A log of all writes done as part of this haxl computation. Any
        -- haxl computation that needs to be memoized runs in its own
-       -- environment so
+       -- environment so that we can get a hold of those writes and put them
+       -- in the IVar associated with the compuatation.
+  , writeLogsRefNoMemo :: {-# UNPACK #-} !(IORef (WriteTree w))
+       -- ^ This is just a specialized version of @writeLogsRef@, where we put
+       -- logs that user doesn't want memoized. This is a better alternative to
+       -- doing arbitrary IO from a (memoized) Haxl computation.
 #ifdef PROFILING
   , callGraphRef ::  Maybe (IORef CallGraph)
        -- ^ An edge list representing the current function call graph. The type
@@ -238,6 +245,7 @@ initEnvWithData states e (cref, mref) = do
   sr <- newIORef emptyReqCounts
   comps <- newTVarIO []              -- completion queue
   wl <- newIORef NilWrites
+  wlnm <- newIORef NilWrites
   return Env
     { cacheRef = cref
     , memoRef = mref
@@ -254,6 +262,7 @@ initEnvWithData states e (cref, mref) = do
     , pendingWaits = []
     , speculative = 0
     , writeLogsRef = wl
+    , writeLogsRefNoMemo = wlnm
 #ifdef PROFILING
     , callGraphRef = Nothing
     , currFunction = mainFunction
@@ -303,6 +312,7 @@ appendWTs w1 w2 = MergeWrites w1 w2
 
 -- This function must be called at the end of the Haxl computation to get
 -- a list of writes.
+-- Haxl provides no guarantees on the order of the returned logs.
 flattenWT :: WriteTree w -> [w]
 flattenWT = go []
   where
@@ -323,7 +333,7 @@ mbModifyWLRef !wt ref = modifyIORef' ref (`appendWTs` wt)
 --    of the scheduler, including unfetched requests and the run queue
 --    of computations.
 --
---  * It is a writer monad for 'WriteTree'. These can be used to do 
+--  * It is a writer monad for 'WriteTree'. These can be used to do
 --    arbitrary "logs" from any Haxl computation. These are better than
 --    doing arbitrary IO from a Haxl computation as these writes also get
 --    memoized if the Haxl computation associated with them is memoized.
@@ -351,6 +361,15 @@ write :: WriteTree w -> GenHaxl u w ()
 write wt = GenHaxl $ \Env{..} -> do
   mbModifyWLRef wt writeLogsRef
   return $ Done ()
+
+tellWriteNoMemo :: w -> GenHaxl u w ()
+tellWriteNoMemo = writeNoMemo . SomeWrite
+
+writeNoMemo :: WriteTree w -> GenHaxl u w ()
+writeNoMemo wt = GenHaxl $ \Env{..} -> do
+  mbModifyWLRef wt writeLogsRefNoMemo
+  return $ Done ()
+
 
 instance IsString a => IsString (GenHaxl u w a) where
   fromString s = return (fromString s)

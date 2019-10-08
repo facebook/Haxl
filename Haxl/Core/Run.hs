@@ -203,7 +203,9 @@ runHaxlWithWrites env@Env{..} haxl = do
   r <- readIORef resultRef
   case r of
     IVarEmpty _ -> throwIO (CriticalError "runHaxl: missing result")
-    IVarFull (Ok a wt)  -> return (a, flattenWT wt)
+    IVarFull (Ok a wt) -> do
+      wtNoMemo <- readIORef writeLogsRefNoMemo
+      return (a, flattenWT (wt `appendWTs` wtNoMemo))
     IVarFull (ThrowHaxl e _wt)  -> throwIO e
       -- The written logs are discarded when there's a Haxl exception. We
       -- can change this behavior if we need to get access to partial logs.

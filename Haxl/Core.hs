@@ -22,7 +22,7 @@ module Haxl.Core (
   , StateStore, stateGet, stateSet, stateEmpty
 
     -- ** Writes inside the monad
-  , tellWrite
+  , tellWrite, tellWriteNoMemo
 
     -- ** Exceptions
   , throw, catch, catchIf, try, tryToHaxlException
