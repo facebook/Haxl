@@ -474,7 +474,11 @@ putIVar (IVar ref) a Env{..} = do
     IVarEmpty jobs -> do
       writeIORef ref (IVarFull a)
       modifyIORef' runQueueRef (appendJobList jobs)
-    IVarFull{} -> error "putIVar: multiple put"
+      -- An IVar is typically only meant to be written to once
+      -- so it would make sense to throw an error here. But there
+      -- are legitimate use-cases for writing several times.
+      -- (See Haxl.Core.Parallel)
+    IVarFull{} -> return ()
 
 {-# INLINE addJob #-}
 addJob :: Env u w -> GenHaxl u w b -> IVar u w b -> IVar u w a -> IO ()
