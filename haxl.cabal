@@ -146,6 +146,7 @@ test-suite test
     LoadCache
     MemoizationTests
     MockTAO
+    ParallelTests
     ProfileTests
     SleepDataSource
     TestBadDataSource
