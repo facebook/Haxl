@@ -21,11 +21,11 @@ sync_test = do
   -- This computation tests that the two arguments of the pOr can fire
   -- without causing an error. The reason we test for this is that the
   -- synchronization involved in this case is a little fragile.
-  runHaxl env $ do
-    False <- (fmap (const False) (sleep 100)
-               `pOr` fmap (const False) (sleep 100))
-             `pOr` fmap (const False) (sleep 200)
-    return ()
+  False <- runHaxl env $ do
+    (fmap (const False) (sleep 100)
+      `pOr` fmap (const False) (sleep 100))
+      `pOr` fmap (const False) (sleep 200)
+  return ()
 
 timing_test = do
   env <- testEnv
