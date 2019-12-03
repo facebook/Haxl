@@ -733,6 +733,8 @@ blockedBlocked env ivar1 fcont _ acont | speculative env /= 0 =
   return (Blocked ivar1 (Cont (toHaxl fcont <*> toHaxl acont)))
 blockedBlocked _ _ (Return i) ivar2 acont =
   return (Blocked ivar2 (acont :>>= getIVarApply i))
+blockedBlocked _ _ (g :<$> Return i) ivar2 acont =
+  return (Blocked ivar2 (acont :>>= \ a -> (\f -> g f a) <$> getIVar i))
 blockedBlocked env ivar1 fcont ivar2 acont = do
   i <- newIVar
   addJob env (toHaxl fcont) i ivar1
