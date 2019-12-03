@@ -433,13 +433,13 @@ newFullIVar :: ResultVal a w -> IO (IVar u w a)
 newFullIVar r = IVar <$> newIORef (IVarFull r)
 
 getIVar :: IVar u w a -> GenHaxl u w a
-getIVar (IVar !ref) = GenHaxl $ \Env{..} -> do
+getIVar i@(IVar !ref) = GenHaxl $ \Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a _wt) -> return (Done a)
     IVarFull (ThrowHaxl e _wt) -> return (Throw e)
     IVarFull (ThrowIO e) -> throwIO e
-    IVarEmpty _ -> return (Blocked (IVar ref) (Cont (getIVar (IVar ref))))
+    IVarEmpty _ -> return (Blocked i (Return i))
 
 -- Just a specialised version of getIVar, for efficiency in <*>
 getIVarApply :: IVar u w (a -> b) -> a -> GenHaxl u w b
@@ -651,22 +651,25 @@ data Cont u w a
   = Cont (GenHaxl u w a)
   | forall b. Cont u w b :>>= (b -> GenHaxl u w a)
   | forall b. (b -> a) :<$> (Cont u w b)
+  | Return (IVar u w a)
 
 toHaxl :: Cont u w a -> GenHaxl u w a
 toHaxl (Cont haxl) = haxl
 toHaxl (m :>>= k) = toHaxlBind m k
 toHaxl (f :<$> x) = toHaxlFmap f x
+toHaxl (Return i) = getIVar i
 
 toHaxlBind :: Cont u w b -> (b -> GenHaxl u w a) -> GenHaxl u w a
 toHaxlBind (m :>>= k) k2 = toHaxlBind m (k >=> k2)
 toHaxlBind (Cont haxl) k = haxl >>= k
 toHaxlBind (f :<$> x) k = toHaxlBind x (k . f)
+toHaxlBind (Return i) k = getIVar i >>= k
 
 toHaxlFmap :: (a -> b) -> Cont u w a -> GenHaxl u w b
 toHaxlFmap f (m :>>= k) = toHaxlBind m (k >=> return . f)
 toHaxlFmap f (Cont haxl) = f <$> haxl
 toHaxlFmap f (g :<$> x) = toHaxlFmap (f . g) x
-
+toHaxlFmap f (Return i) = f <$> getIVar i
 
 -- -----------------------------------------------------------------------------
 -- Monad/Applicative instances
@@ -728,6 +731,8 @@ blockedBlocked
   -> IO (Result u w b)
 blockedBlocked env ivar1 fcont _ acont | speculative env /= 0 =
   return (Blocked ivar1 (Cont (toHaxl fcont <*> toHaxl acont)))
+blockedBlocked _ _ (Return i) ivar2 acont =
+  return (Blocked ivar2 (acont :>>= getIVarApply i))
 blockedBlocked env ivar1 fcont ivar2 acont = do
   i <- newIVar
   addJob env (toHaxl fcont) i ivar1

@@ -212,11 +212,11 @@ dataFetchWithInsert showFn insertFn req =
           modifyIORef' reqStoreRef $ \bs ->
             addRequest (BlockedFetch req rvar) bs
       --
-      return $ Blocked ivar (Cont (getIVar ivar))
+      return $ Blocked ivar (Return ivar)
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
-    CachedNotFetched ivar -> return $ Blocked ivar (Cont (getIVar ivar))
+    CachedNotFetched ivar -> return $ Blocked ivar (Return ivar)
 
     -- Cached: either a result, or an exception
     Cached r -> done r
@@ -249,7 +249,7 @@ uncachedRequest req = do
       let !rvar = stdResultVar ivar completions subRef flg (Proxy :: Proxy r)
       modifyIORef' reqStoreRef $ \bs ->
         addRequest (BlockedFetch req rvar) bs
-      return $ Blocked ivar (Cont (getIVar ivar))
+      return $ Blocked ivar (Return ivar)
 
 
 -- | Transparently provides caching. Useful for datasources that can
