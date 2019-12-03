@@ -709,23 +709,30 @@ instance Applicative (GenHaxl u w) where
             return (Blocked ivar (f :<$> fcont))
       Throw e -> trace_ "Throw" $ return (Throw e)
       Blocked ivar1 fcont -> do
-         ra <- aa env
-         case ra of
-           Done a -> trace_ "Blocked/Done" $
-             return (Blocked ivar1 (($ a) :<$> fcont))
-           Throw e -> trace_ "Blocked/Throw" $
-             return (Blocked ivar1 (fcont :>>= (\_ -> throw e)))
-           Blocked ivar2 acont -> trace_ "Blocked/Blocked" $ do
+        ra <- aa env
+        case ra of
+          Done a -> trace_ "Blocked/Done" $
+            return (Blocked ivar1 (($ a) :<$> fcont))
+          Throw e -> trace_ "Blocked/Throw" $
+            return (Blocked ivar1 (fcont :>>= (\_ -> throw e)))
+          Blocked ivar2 acont -> trace_ "Blocked/Blocked" $
+            blockedBlocked env ivar1 fcont ivar2 acont
              -- Note [Blocked/Blocked]
-              if speculative env /= 0
-                then
-                  return (Blocked ivar1
-                            (Cont (toHaxl fcont <*> toHaxl acont)))
-                else do
-                  i <- newIVar
-                  addJob env (toHaxl fcont) i ivar1
-                  let cont = acont :>>= \a -> getIVarApply i a
-                  return (Blocked ivar2 cont)
+
+blockedBlocked
+  :: Env u w
+  -> IVar u w c
+  -> Cont u w (a -> b)
+  -> IVar u w d
+  -> Cont u w a
+  -> IO (Result u w b)
+blockedBlocked env ivar1 fcont _ acont | speculative env /= 0 =
+  return (Blocked ivar1 (Cont (toHaxl fcont <*> toHaxl acont)))
+blockedBlocked env ivar1 fcont ivar2 acont = do
+  i <- newIVar
+  addJob env (toHaxl fcont) i ivar1
+  let cont = acont :>>= \a -> getIVarApply i a
+  return (Blocked ivar2 cont)
 
 -- Note [Blocked/Blocked]
 --
