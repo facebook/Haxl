@@ -73,22 +73,15 @@ biselect_opt discrimA discrimB left right haxla haxlb =
               Throw e -> return (Throw e)
               Blocked ib haxlb' -> do
                 i <- newIVar
-
-                let fillIVar = GenHaxl $ \env -> do
-                      putIVar i (Ok () NilWrites) env
-                      return (Done ())
-
-                iDummyA <- newIVar
-                iDummyB <- newIVar
-                addJob senv fillIVar iDummyA ia
-                addJob senv fillIVar iDummyB ib
+                addJob senv (return ()) i ia
+                addJob senv (return ()) i ib
                 return (Blocked i (Cont (go (toHaxl haxla') (toHaxl haxlb'))))
-          -- This goes to some length to make sure that it
-          -- wakes up whenever either 'ia' or 'ib' is filled.
-          -- The ivar 'i' is used as a synchronisation point
-          -- for the whole computation, and we make sure that
-          -- whenever 'ia' or 'ib' are filled in then 'i' will
-          -- also be filled.
+                -- The code above makes sure that the computation
+                -- wakes up whenever either 'ia' or 'ib' is filled.
+                -- The ivar 'i' is used as a synchronisation point
+                -- for the whole computation, and we make sure that
+                -- whenever 'ia' or 'ib' are filled in then 'i' will
+                -- also be filled.
 
       go_right b eb =
         case discrimB eb of

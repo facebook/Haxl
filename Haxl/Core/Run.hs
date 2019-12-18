@@ -64,7 +64,12 @@ runHaxlWithWrites env@Env{..} haxl = do
           result r = do
             e <- readIORef ref
             case e of
-              IVarFull _ -> error "multiple put"
+              IVarFull _ ->
+                -- An IVar is typically only meant to be written to once
+                -- so it would make sense to throw an error here. But there
+                -- are legitimate use-cases for writing several times.
+                -- (See Haxl.Core.Parallel)
+                reschedule env rq
               IVarEmpty haxls -> do
                 writeIORef ref (IVarFull r)
                 -- Have we got the final result now?
