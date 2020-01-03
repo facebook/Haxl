@@ -35,6 +35,7 @@ import Haxl.Core.Fetch
 import Haxl.Core.Profile
 import Haxl.Core.RequestStore as RequestStore
 import Haxl.Core.Stats
+import Haxl.Core.Util
 
 
 -- -----------------------------------------------------------------------------
@@ -165,7 +166,7 @@ runHaxlWithWrites env@Env{..} haxl = do
     checkCompletions :: Env u w -> IO (JobList u w)
     checkCompletions Env{..} = do
       ifTrace flags 3 $ printf "checkCompletions\n"
-      comps <- atomically $ do
+      comps <- atomicallyOnBlocking (LogicBug ReadingCompletionsFailedRun) $ do
         c <- readTVar completions
         writeTVar completions []
         return c
@@ -198,7 +199,7 @@ runHaxlWithWrites env@Env{..} haxl = do
     waitCompletions :: Env u w -> IO ()
     waitCompletions env@Env{..} = do
       ifTrace flags 3 $ printf "waitCompletions\n"
-      atomically $ do
+      atomicallyOnBlocking (LogicBug ReadingCompletionsFailedRun) $ do
         c <- readTVar completions
         when (null c) retry
       emptyRunQueue env
@@ -246,3 +247,9 @@ data SchedPolicy
   | WaitAtLeast Int{-ms-}
   | WaitForAllPendingRequests
 -}
+
+-- | An exception thrown when reading from datasources fails
+data ReadingCompletionsFailedRun = ReadingCompletionsFailedRun
+  deriving Show
+
+instance Exception ReadingCompletionsFailedRun

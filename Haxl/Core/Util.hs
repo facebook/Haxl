@@ -8,7 +8,8 @@
 --
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 module Haxl.Core.Util
-  ( compose
+  ( atomicallyOnBlocking
+  , compose
   , textShow
   , trace_
   ) where
@@ -16,6 +17,14 @@ module Haxl.Core.Util
 import Data.Text (Text)
 import Debug.Trace (trace)
 import qualified Data.Text as Text
+
+import Control.Concurrent.STM
+import Control.Exception
+
+atomicallyOnBlocking :: Exception e => e -> STM a -> IO a
+atomicallyOnBlocking e stm =
+  catch (atomically stm)
+        (\BlockedIndefinitelyOnSTM -> throw e)
 
 -- | Composes a list of endofunctions.
 compose :: [a -> a] -> a -> a

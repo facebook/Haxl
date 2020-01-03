@@ -147,7 +147,8 @@ stdResultVar ivar completions ref flags p =
     -- Decrement the counter as request has finished
     ifReport flags 1 $
       atomicModifyIORef' ref (\m -> (subFromCountMap p 1 m, ()))
-    atomically $ do
+    atomicallyOnBlocking
+      (LogicBug (ReadingCompletionsFailedFetch (dataSourceName p))) $ do
       cs <- readTVar completions
       writeTVar completions (CompleteReq r ivar allocs : cs)
 {-# INLINE stdResultVar #-}
@@ -588,3 +589,10 @@ scheduleFetches fetches ref flags = do
   sync_fetches :: IO ()
   sync_fetches = sequence_
     [f reqs | FetchToDo reqs (SyncFetch f) <- fetches]
+
+
+-- | An exception thrown when reading from datasources fails
+data ReadingCompletionsFailedFetch = ReadingCompletionsFailedFetch Text
+  deriving Show
+
+instance Exception ReadingCompletionsFailedFetch
