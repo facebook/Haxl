@@ -9,6 +9,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 -- | Defines 'runHaxl'.  Most users should import "Haxl.Core" instead.
 --
@@ -24,6 +26,9 @@ import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad
 import Data.IORef
+#if __GLASGOW_HASKELL__ < 710
+import Data.Typeable
+#endif
 import Text.Printf
 import Unsafe.Coerce
 
@@ -253,3 +258,7 @@ data ReadingCompletionsFailedRun = ReadingCompletionsFailedRun
   deriving Show
 
 instance Exception ReadingCompletionsFailedRun
+
+#if __GLASGOW_HASKELL__ < 710
+deriving instance Typeable ReadingCompletionsFailedRun
+#endif

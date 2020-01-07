@@ -14,6 +14,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 -- | Implementation of data-fetching operations.  Most users should
 -- import "Haxl.Core" instead.
@@ -596,3 +598,7 @@ data ReadingCompletionsFailedFetch = ReadingCompletionsFailedFetch Text
   deriving Show
 
 instance Exception ReadingCompletionsFailedFetch
+
+#if __GLASGOW_HASKELL__ < 710
+deriving instance Typeable ReadingCompletionsFailedFetch
+#endif
