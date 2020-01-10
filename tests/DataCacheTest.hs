@@ -44,32 +44,31 @@ dcSoundnessTest :: Test
 dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
   m1 <- newResult 1
   m2 <- newResult "hello"
-  let cache =
-          DataCache.insert (Req 1 :: TestReq Int) m1 $
-          DataCache.insert (Req 2 :: TestReq String) m2 $
-          emptyDataCache
+  cache <- emptyDataCache
+  DataCache.insert (Req 2 :: TestReq String) m2 cache
+  DataCache.insert (Req 1 :: TestReq Int) m1 cache
 
   -- "Req 1" has a result of type Int, so if we try to look it up
   -- with a result of type String, we should get Nothing, not a crash.
-  r <- mapM takeResult $ DataCache.lookup (Req 1) cache
+  r <- mapM takeResult =<< DataCache.lookup (Req 1) cache
   assertBool "dcSoundness1" $
     case r :: Maybe (ResultVal String ()) of
      Nothing -> True
      _something_else -> False
 
-  r <- mapM takeResult $ DataCache.lookup (Req 1) cache
+  r <- mapM takeResult =<< DataCache.lookup (Req 1) cache
   assertBool "dcSoundness2" $
     case r :: Maybe (ResultVal Int ()) of
      Just (Ok 1 NilWrites) -> True
      _something_else -> False
 
-  r <- mapM takeResult $ DataCache.lookup (Req 2) cache
+  r <- mapM takeResult =<< DataCache.lookup (Req 2) cache
   assertBool "dcSoundness3" $
     case r :: Maybe (ResultVal String ()) of
       Just (Ok "hello" NilWrites) -> True
       _something_else -> False
 
-  r <- mapM takeResult $ DataCache.lookup (Req 2) cache
+  r <- mapM takeResult =<< DataCache.lookup (Req 2) cache
   assertBool "dcSoundness4" $
     case r :: Maybe (ResultVal Int ()) of
       Nothing -> True

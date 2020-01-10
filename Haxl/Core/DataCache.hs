@@ -4,10 +4,10 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- A cache mapping data requests to their results.  This module is
@@ -25,14 +25,15 @@ module Haxl.Core.DataCache
   , showCache
   ) where
 
-import Control.Exception
-import Data.Hashable
 import Prelude hiding (lookup)
+#if __GLASGOW_HASKELL__ < 710
+import Control.Applicative ((<$>))
+#endif
+import Control.Exception
 import Unsafe.Coerce
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
 import Data.Typeable
-import Data.Maybe
+import Data.Hashable
+import qualified Data.HashTable.IO as H
 
 -- ---------------------------------------------------------------------------
 -- DataCache
@@ -41,7 +42,7 @@ import Data.Maybe
 -- any @req@ and @a@ provided @req a@ is an instance of 'Typeable'. In
 -- practice @req a@ will be a request type parameterised by its result.
 --
-newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
+newtype DataCache res = DataCache (HashTable TypeRep (SubCache res))
 
 -- | The implementation is a two-level map: the outer level maps the
 -- types of requests to 'SubCache', which maps actual requests to their
@@ -51,14 +52,13 @@ newtype DataCache res = DataCache (HashMap TypeRep (SubCache res))
 --
 data SubCache res =
   forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
-       SubCache (req a -> String) (a -> String) ! (HashMap (req a) (res a))
-       -- NB. the inner HashMap is strict, to avoid building up
-       -- a chain of thunks during repeated insertions.
+       SubCache (req a -> String) (a -> String) ! (HashTable (req a) (res a))
+
+type HashTable k v = H.BasicHashTable k v
 
 -- | A new, empty 'DataCache'.
-emptyDataCache :: DataCache res
-emptyDataCache = DataCache HashMap.empty
-
+emptyDataCache :: IO (DataCache res)
+emptyDataCache = DataCache <$> H.new
 
 -- | Inserts a request-result pair into the 'DataCache'.
 insert
@@ -68,9 +68,23 @@ insert
   -> res a
   -- ^ Result
   -> DataCache res
-  -> DataCache res
+  -> IO ()
 
 insert = insertWithShow show show
+
+-- | Inserts a request-result pair into the 'DataCache', without
+-- requiring Show instances of the request or the result.  The cache
+-- cannot be subsequently used with `showCache`.
+insertNotShowable
+  :: (Hashable (req a), Typeable (req a), Eq (req a))
+  => req a
+  -- ^ Request
+  -> res a
+  -- ^ Result
+  -> DataCache res
+  -> IO ()
+
+insertNotShowable = insertWithShow notShowable notShowable
 
 -- | Inserts a request-result pair into the 'DataCache', with the given
 -- functions used to show the request and result.
@@ -85,32 +99,32 @@ insertWithShow
   -> res a
   -- ^ Result
   -> DataCache res
-  -> DataCache res
+  -> IO ()
 
-insertWithShow showRequest showResult req result (DataCache m) =
-  DataCache $
-    HashMap.insertWith fn (typeOf req)
-       (SubCache showRequest showResult (HashMap.singleton req result)) m
-  where
-    fn (SubCache _ _ new) (SubCache showReq showRes old) =
-      SubCache showReq showRes (unsafeCoerce new `HashMap.union` old)
-
--- | Inserts a request-result pair into the 'DataCache', without
--- requiring Show instances of the request or the result.  The cache
--- cannot be subsequently used with `showCache`.
-insertNotShowable
-  :: (Hashable (req a), Typeable (req a), Eq (req a))
-  => req a
-  -- ^ Request
-  -> res a
-  -- ^ Result
-  -> DataCache res
-  -> DataCache res
-
-insertNotShowable = insertWithShow notShowable notShowable
+insertWithShow showRequest showResult request result (DataCache m) =
+  H.mutateIO m (typeOf request) (mutate showRequest showResult request result)
 
 notShowable :: a
 notShowable = error "insertNotShowable"
+
+-- | A mutation function for mutateIO. If the key doesn't exist in the top-level
+-- cache, creates a new hashtable and inserts the request and result.
+-- If the key exists, insert the request and result into the existing subcache,
+-- replacing any existing mapping.
+mutate :: (Hashable (req a), Typeable (req a), Eq (req a))
+  => (req a -> String)
+  -> (a -> String)
+  -> req a
+  -> res a
+  -> Maybe (SubCache res)
+  -> IO (Maybe (SubCache res), ())
+mutate showRequest showResult request result Nothing = do
+  newTable <- H.new
+  H.insert newTable request result
+  return (Just (SubCache showRequest showResult newTable), ())
+mutate _ _ request result (Just sc@(SubCache _ _ oldTable)) = do
+    H.insert oldTable (unsafeCoerce request) (unsafeCoerce result)
+    return (Just sc, ())
 
 -- | Looks up the cached result of a request.
 lookup
@@ -118,38 +132,39 @@ lookup
   => req a
   -- ^ Request
   -> DataCache res
-  -> Maybe (res a)
+  -> IO (Maybe (res a))
 
-lookup req (DataCache m) =
-      case HashMap.lookup (typeOf req) m of
-        Nothing -> Nothing
-        Just (SubCache _ _ sc) ->
-           unsafeCoerce (HashMap.lookup (unsafeCoerce req) sc)
+lookup req (DataCache m) = do
+  mbRes <- H.lookup m (typeOf req)
+  case mbRes of
+    Nothing -> return Nothing
+    Just (SubCache _ _ sc) ->
+      unsafeCoerce (H.lookup sc (unsafeCoerce req))
 
 -- | Dumps the contents of the cache, with requests and responses
 -- converted to 'String's using the supplied show functions.  The
 -- entries are grouped by 'TypeRep'.  Note that this will fail if
 -- 'insertNotShowable' has been used to insert any entries.
---
 showCache
   :: forall res
   .  DataCache res
   -> (forall a . res a -> IO (Maybe (Either SomeException a)))
   -> IO [(TypeRep, [(String, Either SomeException String)])]
 
-showCache (DataCache cache) readRes = mapM goSubCache (HashMap.toList cache)
- where
-  goSubCache
-    :: (TypeRep, SubCache res)
-    -> IO (TypeRep,[(String, Either SomeException String)])
-  goSubCache (ty, SubCache showReq showRes hmap) = do
-    elems <- catMaybes <$> mapM go (HashMap.toList hmap)
-    return (ty, elems)
-   where
-    go  (req, rvar) = do
-      maybe_r <- readRes rvar
-      case maybe_r of
-        Nothing -> return Nothing
-        Just (Left e) -> return (Just (showReq req, Left e))
-        Just (Right result) ->
-          return (Just (showReq req, Right (showRes result)))
+showCache (DataCache cache) readRes = H.foldM goSubCache [] cache
+  where
+    goSubCache
+      :: [(TypeRep, [(String, Either SomeException String)])]
+      -> (TypeRep, SubCache res)
+      -> IO [(TypeRep, [(String, Either SomeException String)])]
+    goSubCache res (ty, SubCache showReq showRes hm) = do
+      subCacheResult <- H.foldM go [] hm
+      return $ (ty, subCacheResult):res
+      where
+        go res (request, rvar) = do
+          maybe_r <- readRes rvar
+          return $ case maybe_r of
+            Nothing -> res
+            Just (Left e) -> (showReq request, Left e) : res
+            Just (Right result) ->
+              (showReq request, Right (showRes result)) : res

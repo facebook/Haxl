@@ -39,14 +39,16 @@ instance Hashable (TestReq a) where
 main = do
   [n] <- fmap (fmap read) getArgs
   t0 <- getCurrentTime
+  cache <- emptyDataCache
   let
-     f 0  !cache = return cache
-     f !n !cache = do
+     f 0 = return ()
+     f !n = do
        m <- newIORef 0
-       f (n-1) (DataCache.insert (ReqInt n) m cache)
+       DataCache.insert (ReqInt n) m cache
+       f (n-1)
   --
-  cache <- f n emptyDataCache
-  let m = DataCache.lookup (ReqInt (n `div` 2)) cache
+  f n
+  m <- DataCache.lookup (ReqInt (n `div` 2)) cache
   print =<< mapM readIORef m
   t1 <- getCurrentTime
   printf "insert: %.2fs\n" (realToFrac (t1 `diffUTCTime` t0) :: Double)
@@ -54,9 +56,11 @@ main = do
   t0 <- getCurrentTime
   let
      f 0  !m = return m
-     f !n !m = case DataCache.lookup (ReqInt n) cache of
-                 Nothing -> f (n-1) m
-                 Just _  -> f (n-1) (m+1)
+     f !n !m = do
+      mbRes <- DataCache.lookup (ReqInt n) cache
+      case mbRes of
+        Nothing -> f (n-1) m
+        Just _  -> f (n-1) (m+1)
   f n 0 >>= print
   t1 <- getCurrentTime
   printf "lookup: %.2fs\n" (realToFrac (t1 `diffUTCTime` t0) :: Double)

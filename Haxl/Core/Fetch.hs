@@ -101,18 +101,18 @@ cachedWithInsert
   :: forall r a u w.
      (DataSource u r, Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w))
+  -> (r a -> IVar u w a -> DataCache (IVar u w) -> IO ())
   -> Env u w -> r a -> IO (CacheResult u w a)
 cachedWithInsert showFn insertFn Env{..} req = do
-  cache <- readIORef cacheRef
   let
     doFetch = do
       ivar <- newIVar
       let !rvar = stdResultVar ivar completions submittedReqsRef flags
             (Proxy :: Proxy r)
-      writeIORef cacheRef $! insertFn req ivar cache
+      insertFn req ivar dataCache
       return (Uncached rvar ivar)
-  case DataCache.lookup req cache of
+  mbRes <- DataCache.lookup req dataCache
+  case mbRes of
     Nothing -> doFetch
     Just (IVar cr) -> do
       e <- readIORef cr
@@ -188,7 +188,7 @@ dataFetchWithInsert
   :: forall u w r a
    . (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w))
+  -> (r a -> IVar u w a -> DataCache (IVar u w) -> IO ())
   -> r a
   -> GenHaxl u w a
 dataFetchWithInsert showFn insertFn req =
@@ -276,12 +276,11 @@ cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
 cacheResultWithInsert
   :: Typeable (r a)
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u w a -> DataCache (IVar u w) -> DataCache (IVar u w)) -> r a
+  -> (r a -> IVar u w a -> DataCache (IVar u w) -> IO ()) -> r a
   -> IO a -> GenHaxl u w a
-cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env -> do
-  let !ref = cacheRef env
-  cache <- readIORef ref
-  case DataCache.lookup req cache of
+cacheResultWithInsert showFn insertFn req val = GenHaxl $ \Env{..} -> do
+  mbRes <- DataCache.lookup req dataCache
+  case mbRes of
     Nothing -> do
       eitherResult <- Exception.try val
       case eitherResult of
@@ -289,7 +288,7 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env -> do
         _ -> return ()
       let result = eitherToResultThrowIO eitherResult
       ivar <- newFullIVar result
-      writeIORef ref $! insertFn req ivar cache
+      insertFn req ivar dataCache
       done result
     Just (IVar cr) -> do
       e <- readIORef cr
@@ -315,12 +314,12 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env -> do
 --
 cacheRequest
   :: Request req a => req a -> Either SomeException a -> GenHaxl u w ()
-cacheRequest request result = GenHaxl $ \env -> do
-  cache <- readIORef (cacheRef env)
-  case DataCache.lookup request cache of
+cacheRequest request result = GenHaxl $ \Env{..} -> do
+  mbRes <- DataCache.lookup request dataCache
+  case mbRes of
     Nothing -> do
       cr <- newFullIVar (eitherToResult result)
-      writeIORef (cacheRef env) $! DataCache.insert request cr cache
+      DataCache.insert request cr dataCache
       return (Done ())
 
     -- It is an error if the request is already in the cache.
@@ -336,10 +335,9 @@ cacheRequest request result = GenHaxl $ \env -> do
 -- Useful e.g. for unit tests
 dupableCacheRequest
   :: Request req a => req a -> Either SomeException a -> GenHaxl u w ()
-dupableCacheRequest request result = GenHaxl $ \env -> do
-  cache <- readIORef (cacheRef env)
+dupableCacheRequest request result = GenHaxl $ \Env{..} -> do
   cr <- newFullIVar (eitherToResult result)
-  writeIORef (cacheRef env) $! DataCache.insert request cr cache
+  DataCache.insert request cr dataCache
   return (Done ())
 
 performRequestStore

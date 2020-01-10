@@ -21,7 +21,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -29,7 +28,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- The implementation of the 'Haxl' monad.  Most users should
@@ -149,10 +147,10 @@ import Haxl.Core.CallGraph
 
 -- | The data we carry around in the Haxl monad.
 data Env u w = Env
-  { cacheRef     :: {-# UNPACK #-} !(IORef (DataCache (IVar u w)))
+  { dataCache     :: {-# UNPACK #-} !(DataCache (IVar u w))
       -- ^ cached data fetches
 
-  , memoRef      :: {-# UNPACK #-} !(IORef (DataCache (IVar u w)))
+  , memoCache      :: {-# UNPACK #-} !(DataCache (IVar u w))
       -- ^ memoized computations
 
   , flags        :: !Flags
@@ -223,15 +221,15 @@ data Env u w = Env
 #endif
   }
 
-type Caches u w = (IORef (DataCache (IVar u w)), IORef (DataCache (IVar u w)))
+type Caches u w = (DataCache (IVar u w), DataCache (IVar u w))
 
 caches :: Env u w -> Caches u w
-caches env = (cacheRef env, memoRef env)
+caches env = (dataCache env, memoCache env)
 
 -- | Initialize an environment with a 'StateStore', an input map, a
 -- preexisting 'DataCache', and a seed for the random number generator.
 initEnvWithData :: StateStore -> u -> Caches u w -> IO (Env u w)
-initEnvWithData states e (cref, mref) = do
+initEnvWithData states e (dcache, mcache) = do
   sref <- newIORef emptyStats
   pref <- newIORef emptyProfile
   rs <- newIORef noRequests          -- RequestStore
@@ -241,8 +239,8 @@ initEnvWithData states e (cref, mref) = do
   wl <- newIORef NilWrites
   wlnm <- newIORef NilWrites
   return Env
-    { cacheRef = cref
-    , memoRef = mref
+    { dataCache = dcache
+    , memoCache = mcache
     , flags = defaultFlags
     , userEnv = e
     , states = states
@@ -266,9 +264,9 @@ initEnvWithData states e (cref, mref) = do
 -- | Initializes an environment with 'StateStore' and an input map.
 initEnv :: StateStore -> u -> IO (Env u w)
 initEnv states e = do
-  cref <- newIORef emptyDataCache
-  mref <- newIORef emptyDataCache
-  initEnvWithData states e (cref,mref)
+  dcache <- emptyDataCache
+  mcache <- emptyDataCache
+  initEnvWithData states e (dcache, mcache)
 
 -- | A new, empty environment.
 emptyEnv :: u -> IO (Env u w)
@@ -909,7 +907,7 @@ dumpCacheAsHaskell =
 -- @dupableCacheRequest@.
 dumpCacheAsHaskellFn :: String -> String -> String -> GenHaxl u w String
 dumpCacheAsHaskellFn fnName fnType cacheFn = do
-  ref <- env cacheRef  -- NB. cacheRef, not memoRef.  We ignore memoized
+  cache <- env dataCache  -- NB. dataCache, not memoCache.  We ignore memoized
                        -- results when dumping the cache.
   let
     readIVar (IVar ref) = do
@@ -926,7 +924,6 @@ dumpCacheAsHaskellFn fnName fnType cacheFn = do
     result (Right s) = text "Right" <+> parens (text s)
 
   entries <- unsafeLiftIO $ do
-    cache <- readIORef ref
     showCache cache readIVar
 
   let

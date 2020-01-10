@@ -1,3 +1,8 @@
+# Changes in version 2.2.0.0
+
+  * Use BasicHashTable for the Haxl DataCache instead of HashMap
+  * API Changes in: Haxl.Core.DataCache, Haxl.Core.Fetch
+
 # Changes in version 2.1.2.0
 
   * Add a callgraph reference to 'Env' to record the function callgraph during a

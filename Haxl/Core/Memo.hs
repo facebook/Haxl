@@ -73,14 +73,15 @@ cachedComputation
    => req a -> GenHaxl u w a -> GenHaxl u w a
 
 cachedComputation req haxl = GenHaxl $ \env@Env{..} -> do
-  cache <- readIORef memoRef
   ifProfiling flags $
-     modifyIORef' profRef (incrementMemoHitCounterFor profLabel)
-  case DataCache.lookup req cache of
+     modifyIORef' profRef (incrementMemoHitCounterFor
+     profLabel)
+  mbRes <- DataCache.lookup req memoCache
+  case mbRes of
     Just ivar -> unHaxl (getIVarWithWrites ivar) env
     Nothing -> do
       ivar <- newIVar
-      writeIORef memoRef $! DataCache.insertNotShowable req ivar cache
+      DataCache.insertNotShowable req ivar memoCache
       unHaxl (execMemoNow haxl ivar) env
 
 
@@ -99,15 +100,15 @@ preCacheComputation
      , Typeable (req a))
   => req a -> GenHaxl u w a -> GenHaxl u w a
 preCacheComputation req haxl = GenHaxl $ \env@Env{..} -> do
-  cache <- readIORef memoRef
   ifProfiling flags $
      modifyIORef' profRef (incrementMemoHitCounterFor profLabel)
-  case DataCache.lookup req cache of
+  mbRes <- DataCache.lookup req memoCache
+  case mbRes of
     Just _ -> return $ Throw $ toException $ InvalidParameter
       "preCacheComputation: key is already cached"
     Nothing -> do
       ivar <- newIVar
-      writeIORef memoRef $! DataCache.insertNotShowable req ivar cache
+      DataCache.insertNotShowable req ivar memoCache
       unHaxl (execMemoNow haxl ivar) env
 
 -- -----------------------------------------------------------------------------
