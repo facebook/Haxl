@@ -14,9 +14,6 @@ build-type:          Simple
 stability:           alpha
 cabal-version:       >= 1.10
 tested-with:
-  GHC==7.8.4,
-  GHC==7.10.3,
-  GHC==8.0.2,
   GHC==8.2.2,
   GHC==8.4.3
 
@@ -44,7 +41,7 @@ library
 
   build-depends:
     aeson >= 0.6 && < 1.5,
-    base >= 4.7 && < 5,
+    base >= 4.10 && < 5,
     binary >= 0.7 && < 0.10,
     bytestring >= 0.9 && < 0.11,
     containers >= 0.5 && < 0.7,
@@ -61,10 +58,6 @@ library
     transformers,
     unordered-containers == 0.2.*,
     vector >= 0.10 && <0.13
-
-  if !impl(ghc >= 8.0)
-    build-depends:
-      semigroups >= 0.18.3 && <0.19
 
   exposed-modules:
     Haxl.Core,
@@ -94,11 +87,7 @@ library
   ghc-options:
     -O2 -fprof-auto
     -Wall
-
-  if impl(ghc >= 8.0)
-     ghc-options: -Wno-name-shadowing
-  else
-     ghc-options: -fno-warn-name-shadowing
+    -Wno-name-shadowing
 
 test-suite test
 
@@ -130,12 +119,8 @@ test-suite test
   main-is:
     TestMain.hs
 
-  if impl(ghc >= 8.0)
-    other-modules:
-      AdoTests
-      OutgoneFetchesTests
-
   other-modules:
+    AdoTests
     AllTests
     BadDataSource
     BatchTests
@@ -146,6 +131,7 @@ test-suite test
     LoadCache
     MemoizationTests
     MockTAO
+    OutgoneFetchesTests
     ParallelTests
     ProfileTests
     SleepDataSource

@@ -4,16 +4,13 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP, StandaloneDeriving, GADTs, DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneDeriving, GADTs, DeriveDataTypeable #-}
 module DataCacheTest (tests, newResult, takeResult) where
 
 import Haxl.Core.DataCache as DataCache
 import Haxl.Core.Monad
 import Haxl.Core
 
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative
-#endif
 import Control.Exception
 import Data.Hashable
 import Data.Traversable

@@ -126,12 +126,6 @@ import qualified Control.Monad.Catch as Catch
 import Control.Exception (Exception(..), SomeException, throwIO)
 import Control.Monad
 import qualified Control.Exception as Exception
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative hiding (Const)
-#endif
-#if __GLASGOW_HASKELL__ < 706
-import Prelude hiding (catch)
-#endif
 import Data.IORef
 import Data.Int
 import GHC.Exts (IsString(..))

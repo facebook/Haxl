@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -34,9 +33,6 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.Typeable
 import Data.Maybe
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative ((<$>))
-#endif
 
 -- ---------------------------------------------------------------------------
 -- DataCache

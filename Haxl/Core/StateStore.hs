@@ -34,11 +34,7 @@ import Unsafe.Coerce
 -- instance of 'StateKey' can store and retrieve information from a
 -- 'StateStore'.
 --
-#if __GLASGOW_HASKELL__ >= 708
 class Typeable f => StateKey (f :: * -> *) where
-#else
-class Typeable1 f => StateKey (f :: * -> *) where
-#endif
   data State f
 
   -- | We default this to typeOf1, but if f is itself a complex type that is

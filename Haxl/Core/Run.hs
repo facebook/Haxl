@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -19,16 +18,10 @@ module Haxl.Core.Run
   , runHaxlWithWrites
   ) where
 
-#if __GLASGOW_HASKELL__ <= 708
-import Control.Applicative ((<$>))
-#endif
 import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad
 import Data.IORef
-#if __GLASGOW_HASKELL__ < 710
-import Data.Typeable
-#endif
 import Text.Printf
 import Unsafe.Coerce
 
@@ -258,7 +251,3 @@ data ReadingCompletionsFailedRun = ReadingCompletionsFailedRun
   deriving Show
 
 instance Exception ReadingCompletionsFailedRun
-
-#if __GLASGOW_HASKELL__ < 710
-deriving instance Typeable ReadingCompletionsFailedRun
-#endif

@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -47,9 +46,6 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Int
 import Data.List (intercalate, maximumBy, minimumBy)
-#if __GLASGOW_HASKELL__ < 710
-import Data.Monoid
-#endif
 import Data.Semigroup (Semigroup)
 import Data.Ord (comparing)
 import Data.Text (Text)
@@ -59,9 +55,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
 
-#if __GLASGOW_HASKELL__ >= 710
 import GHC.Conc (getAllocationCounter, setAllocationCounter)
-#endif
 
 -- ---------------------------------------------------------------------------
 -- Measuring time
@@ -191,15 +185,3 @@ data ProfileData = ProfileData
 
 emptyProfileData :: ProfileData
 emptyProfileData = ProfileData 0 HashSet.empty HashMap.empty 0
-
-
--- -----------------------------------------------------------------------------
--- Allocation accounting
-
-#if __GLASGOW_HASKELL__ < 710
-getAllocationCounter :: IO Int64
-getAllocationCounter = return 0
-
-setAllocationCounter :: Int64 -> IO ()
-setAllocationCounter _ = return ()
-#endif

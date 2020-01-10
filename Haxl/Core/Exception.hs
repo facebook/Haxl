@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -73,9 +72,6 @@ module Haxl.Core.Exception (
   tryWithRethrow,
   ) where
 
-#if __GLASGOW_HASKELL__ <= 708
-import Control.Applicative ((<$>))
-#endif
 import Control.Exception as Exception
 import Data.Aeson
 import Data.Binary (Binary)
@@ -361,14 +357,10 @@ asHaxlException e
 --
 rethrowAsyncExceptions :: SomeException -> IO ()
 rethrowAsyncExceptions e
-#if __GLASGOW_HASKELL__ >= 708
   | Just SomeAsyncException{} <- fromException e = Exception.throw e
-#endif
-#if __GLASGOW_HASKELL__ >= 710
   | Just AllocationLimitExceeded{} <- fromException e = Exception.throw e
     -- AllocationLimitExceeded is not a child of SomeAsyncException,
     -- but it should be.
-#endif
   | otherwise = return ()
 
 tryWithRethrow :: IO a -> IO (Either SomeException a)

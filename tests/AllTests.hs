@@ -4,20 +4,16 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 module AllTests (allTests) where
 
 import TestExampleDataSource
 import BatchTests
 import CoreTests
 import DataCacheTest
-#if __GLASGOW_HASKELL__ >= 801
 import AdoTests
 import OutgoneFetchesTests
-#endif
-#if __GLASGOW_HASKELL__ >= 710
 import ProfileTests
-#endif
 import MemoizationTests
 import TestBadDataSource
 import FullyAsyncTest
@@ -33,13 +29,9 @@ allTests = TestList
   , TestLabel "BatchTests-sync" $ BatchTests.tests False
   , TestLabel "CoreTests" CoreTests.tests
   , TestLabel "DataCacheTests" DataCacheTest.tests
-#if __GLASGOW_HASKELL__ >= 801
   , TestLabel "AdoTests" $ AdoTests.tests False
   , TestLabel "OutgoneFetchesTest" OutgoneFetchesTests.tests
-#endif
-#if __GLASGOW_HASKELL__ >= 710
   , TestLabel "ProfileTests" ProfileTests.tests
-#endif
   , TestLabel "MemoizationTests" MemoizationTests.tests
   , TestLabel "BadDataSourceTests" TestBadDataSource.tests
   , TestLabel "FullyAsyncTest" FullyAsyncTest.tests

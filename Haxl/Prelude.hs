@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -36,9 +35,6 @@ module Haxl.Prelude (
 
     -- * Extra Monad and Applicative things
     Applicative(..),
-#if __GLASGOW_HASKELL__ < 710
-    (<$>),
-#endif
     mapM, mapM_, sequence, sequence_, filterM, foldM,
     forM, forM_,
     foldl', sort,
@@ -80,9 +76,6 @@ import Data.Text (Text)
 import Data.Traversable hiding (forM, mapM, sequence)
 import GHC.Exts (IsString(..))
 import Prelude hiding (mapM, mapM_, sequence, sequence_)
-#if __GLASGOW_HASKELL__ < 710
-import Data.Monoid
-#endif
 import Data.Maybe
 import Control.Exception (fromException)
 

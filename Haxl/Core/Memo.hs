@@ -5,7 +5,6 @@
 -- found in the LICENSE file.
 
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
@@ -40,9 +39,6 @@ module Haxl.Core.Memo
   , runMemo
   ) where
 
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative
-#endif
 import Control.Exception as Exception hiding (throw)
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap

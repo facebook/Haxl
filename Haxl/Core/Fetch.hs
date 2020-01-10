@@ -598,7 +598,3 @@ data ReadingCompletionsFailedFetch = ReadingCompletionsFailedFetch Text
   deriving Show
 
 instance Exception ReadingCompletionsFailedFetch
-
-#if __GLASGOW_HASKELL__ < 710
-deriving instance Typeable ReadingCompletionsFailedFetch
-#endif

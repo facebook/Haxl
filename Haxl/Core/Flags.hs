@@ -4,8 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
-
 -- |
 -- The 'Flags' type and related functions.  This module is provided
 -- for access to Haxl internals only; most users should import
@@ -55,21 +53,13 @@ defaultFlags = Flags
   , recording = 0
   }
 
-#if __GLASGOW_HASKELL__ >= 710
-#define FUNMONAD Monad m
-#else
-#define FUNMONAD (Functor m, Monad m)
-#endif
-
 -- | Runs an action if the tracing level is above the given threshold.
-ifTrace :: FUNMONAD => Flags -> Int -> m a -> m ()
+ifTrace :: Monad m => Flags -> Int -> m a -> m ()
 ifTrace flags i = when (trace flags >= i) . void
 
 -- | Runs an action if the report level is above the given threshold.
-ifReport :: FUNMONAD => Flags -> Int -> m a -> m ()
+ifReport :: Monad m => Flags -> Int -> m a -> m ()
 ifReport flags i = when (report flags >= i) . void
 
-ifProfiling :: FUNMONAD => Flags -> m a -> m ()
+ifProfiling :: Monad m => Flags -> m a -> m ()
 ifProfiling flags = when (report flags >= 4) . void
-
-#undef FUNMONAD

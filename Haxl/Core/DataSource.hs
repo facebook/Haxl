@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
@@ -48,17 +47,10 @@ module Haxl.Core.DataSource
   , setError
   ) where
 
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative
-#endif
 import Control.Exception
 import Data.Hashable
 import Data.Text (Text)
-#if __GLASGOW_HASKELL__ >= 802
 import Data.Typeable
-#else
-import Data.Typeable.Internal
-#endif
 
 import Haxl.Core.Exception
 import Haxl.Core.Flags

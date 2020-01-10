@@ -9,7 +9,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 -- | Bucketing requests by 'DataSource'.
 --
 -- When a request is issued by the client via 'dataFetch', it is placed
@@ -35,9 +34,6 @@ module Haxl.Core.RequestStore
   , subFromCountMap
   ) where
 
-#if __GLASGOW_HASKELL__ <= 708
-import Control.Applicative ((<$>))
-#endif
 import Haxl.Core.DataSource
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
