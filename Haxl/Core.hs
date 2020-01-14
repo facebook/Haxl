@@ -57,6 +57,7 @@ module Haxl.Core (
   , ProfileData(..)
   , emptyProfileData
   , AllocCount
+  , LabelHitCount
   , MemoHitCount
 
     -- ** Tracing flags

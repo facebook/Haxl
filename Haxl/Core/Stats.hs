@@ -34,6 +34,7 @@ module Haxl.Core.Stats
   , ProfileData(..)
   , emptyProfileData
   , AllocCount
+  , LabelHitCount
   , MemoHitCount
 
   -- * Allocation
@@ -161,6 +162,7 @@ numFetches (Stats rs) = sum [ fetchBatchSize | FetchStats{..} <- rs ]
 
 type ProfileLabel = Text
 type AllocCount = Int64
+type LabelHitCount = Int64
 type MemoHitCount = Int64
 
 newtype Profile = Profile
@@ -178,10 +180,12 @@ data ProfileData = ProfileData
      -- ^ labels that this label depends on
   , profileFetches :: HashMap Text Int
      -- ^ map from datasource name => fetch count
+  , profileLabelHits :: {-# UNPACK #-} !LabelHitCount
+     -- ^ number of hits at this label
   , profileMemoHits :: {-# UNPACK #-} !MemoHitCount
-    -- ^ number of hits to memoized computation at this label
+     -- ^ number of hits to memoized computation at this label
   }
   deriving Show
 
 emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 HashSet.empty HashMap.empty 0
+emptyProfileData = ProfileData 0 HashSet.empty HashMap.empty 0 0

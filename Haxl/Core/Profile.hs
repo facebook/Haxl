@@ -89,10 +89,15 @@ modifyProfileData env label allocs =
         newEntry =
           emptyProfileData
             { profileAllocs = allocs
-            , profileDeps = HashSet.singleton caller }
+            , profileDeps = HashSet.singleton caller
+            , profileLabelHits = 1
+            }
         updEntry _ old =
-          old { profileAllocs = profileAllocs old + allocs
-              , profileDeps = HashSet.insert caller (profileDeps old) }
+          old
+            { profileAllocs = profileAllocs old + allocs
+            , profileDeps = HashSet.insert caller (profileDeps old)
+            , profileLabelHits = profileLabelHits old + 1
+            }
         -- subtract allocs from caller, so they are not double counted
         -- we don't know the caller's caller, but it will get set on
         -- the way back out, so an empty hashset is fine for now
