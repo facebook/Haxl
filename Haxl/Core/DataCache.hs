@@ -4,7 +4,6 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -26,9 +25,6 @@ module Haxl.Core.DataCache
   ) where
 
 import Prelude hiding (lookup)
-#if __GLASGOW_HASKELL__ < 710
-import Control.Applicative ((<$>))
-#endif
 import Control.Exception
 import Unsafe.Coerce
 import Data.Typeable
@@ -53,6 +49,8 @@ newtype DataCache res = DataCache (HashTable TypeRep (SubCache res))
 data SubCache res =
   forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
        SubCache (req a -> String) (a -> String) ! (HashTable (req a) (res a))
+       -- NB. the inner HashMap is strict, to avoid building up
+       -- a chain of thunks during repeated insertions.
 
 type HashTable k v = H.BasicHashTable k v
 
