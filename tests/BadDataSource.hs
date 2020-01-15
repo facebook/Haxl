@@ -34,6 +34,13 @@ import Data.Typeable
 import Data.Hashable
 import Control.Concurrent
 
+import GHC.Conc ( PrimMVar )
+import Foreign.StablePtr
+import Foreign.C.Types ( CInt(..) )
+
+foreign import ccall safe
+  hs_try_putmvar :: CInt -> StablePtr PrimMVar -> IO ()
+
 data FailAfter a where
   FailAfter :: Int -> FailAfter Int
   deriving Typeable
@@ -55,32 +62,42 @@ instance StateKey FailAfter where
          , failDispatch :: IO ()
          , failWaitDelay :: Int
          , failWait :: IO ()
+         , failUseBackground :: Bool
         }
 
 instance DataSourceName FailAfter where
   dataSourceName _ = "BadDataSource"
 
+
 instance DataSource u FailAfter where
-  -- I'll define exampleFetch below
-  fetch state@FailAfterState{..} = asyncFetchAcquireRelease
-     (do threadDelay failAcquireDelay; failAcquire)
-     (\_ -> do threadDelay failReleaseDelay; failRelease)
-     (\_ -> do threadDelay failDispatchDelay; failDispatch)
-     (\_ -> do threadDelay failWaitDelay; failWait)
-     submit state
+  fetch state@FailAfterState{..}
+    | failUseBackground = bgFetch
+        acquire release dispatchbg wait
+        submit state
+    | otherwise = asyncFetchAcquireRelease
+       acquire release dispatch wait
+       submit state
    where
+     bgFetch = backgroundFetchAcquireRelease
+     acquire = do threadDelay failAcquireDelay; failAcquire
+     release _ = do threadDelay failReleaseDelay; failRelease
+     dispatch _ = do threadDelay failDispatchDelay; failDispatch
+     dispatchbg _ i c = (do
+                          failDispatch
+                          _ <- mask_ $ forkIO $ finally
+                            (threadDelay failDispatchDelay)
+                            putmvar
+                          return ()) `onException` putmvar
+                         where
+                           putmvar = hs_try_putmvar (fromIntegral i) c
+     wait _ = do threadDelay failWaitDelay; failWait
      submit :: () -> FailAfter a -> IO (IO (Either SomeException a))
      submit _ (FailAfter t) = do
        threadDelay t
        return (return (Left (toException (FetchError "failed request"))))
 
--- Every data source should define a function 'initGlobalState' that
--- initialises the state for that data source.  The arguments to this
--- function might vary depending on the data source - we might need to
--- pass in resources from the environment, or parameters to set up the
--- data source.
-initGlobalState :: IO (State FailAfter)
-initGlobalState = do
+initGlobalState :: Bool -> IO (State FailAfter)
+initGlobalState useBackground = do
   return FailAfterState
     { failAcquireDelay = 0
     , failAcquire = return ()
@@ -90,4 +107,5 @@ initGlobalState = do
     , failDispatch = return ()
     , failWaitDelay = 0
     , failWait = return ()
+    , failUseBackground = useBackground
     }
