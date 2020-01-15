@@ -19,25 +19,28 @@ import Control.Exception
 import ExampleDataSource
 import BadDataSource
 
-testEnv fn = do
+testEnv bg fn = do
   exstate <- ExampleDataSource.initGlobalState
-  badstate <- BadDataSource.initGlobalState
+  badstate <- BadDataSource.initGlobalState bg
   let st = stateSet exstate $ stateSet (fn badstate) stateEmpty
   initEnv st ()
 
 wombats :: GenHaxl () () Int
 wombats = length <$> listWombats 3
 
-badDataSourceTest :: Test
-badDataSourceTest = TestCase $ do
+wombatsMany :: GenHaxl () () Int
+wombatsMany = length <$> listWombats 7
+
+badDataSourceTest :: Bool -> Test
+badDataSourceTest bg = TestCase $ do
   -- test that a failed acquire doesn't fail the other requests
   ref <- newIORef False
-  env <- testEnv $ \st ->
+  env <- testEnv bg $ \st ->
     st { failAcquire = throwIO (DataSourceError "acquire")
        , failRelease = writeIORef ref True }
 
   x <- runHaxl env $
-        (dataFetch (FailAfter 0) + wombats)
+        (dataFetch (FailAfter 0) + wombatsMany)
           `Haxl.catch` \DataSourceError{} -> wombats
 
   assertEqual "badDataSourceTest1" 3 x
@@ -47,12 +50,12 @@ badDataSourceTest = TestCase $ do
 
   -- test that a failed dispatch doesn't fail the other requests
   ref <- newIORef False
-  env <- testEnv $ \st ->
+  env <- testEnv bg $ \st ->
     st { failDispatch = throwIO (DataSourceError "dispatch")
        , failRelease = writeIORef ref True }
 
   x <- runHaxl env $
-        (dataFetch (FailAfter 0) + wombats)
+        (dataFetch (FailAfter 0) + wombatsMany)
           `Haxl.catch` \DataSourceError{} -> wombats
 
   assertEqual "badDataSourceTest3" x 3
@@ -61,11 +64,11 @@ badDataSourceTest = TestCase $ do
   assertEqual "badDataSourceTest4" True =<< readIORef ref
 
   -- test that a failed wait is a DataSourceError
-  env <- testEnv $ \st ->
+  env <- testEnv bg $ \st ->
     st { failWait = throwIO (DataSourceError "wait") }
 
   x <- runHaxl env $
-        (dataFetch (FailAfter 0) + wombats)
+        (dataFetch (FailAfter 0) + wombatsMany)
           `Haxl.catch` \DataSourceError{} -> wombats
 
   assertEqual "badDataSourceTest5" x 3
@@ -75,18 +78,28 @@ badDataSourceTest = TestCase $ do
 
   -- test that a failed release is still a DataSourceError, even
   -- though the request will have completed successfully
-  env <- testEnv $ \st ->
+  env <- testEnv bg $ \st ->
     st { failRelease = throwIO (DataSourceError "release") }
 
   x <- runHaxl env $
-        (dataFetch (FailAfter 0) + wombats)
+        (dataFetch (FailAfter 0) + wombatsMany)
           `Haxl.catch` \DataSourceError{} -> wombats
 
   assertEqual "badDataSourceTest7" x 3
+
+  -- test that if we don't throw anything we get the result
+  -- (which is a fetch error for this source)
+  env <- testEnv bg id
+  x <- runHaxl env $
+        (dataFetch (FailAfter 0) + wombatsMany)
+          `Haxl.catch` \FetchError{} -> wombats
+
+  assertEqual "badDataSourceTest8" x 3
 
 
 
 
 tests = TestList
-  [ TestLabel "badDataSourceTest" badDataSourceTest
+  [ TestLabel "badDataSourceTest async" (badDataSourceTest False)
+  , TestLabel "badDataSourceTest background" (badDataSourceTest True)
   ]
