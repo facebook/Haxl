@@ -867,9 +867,20 @@ unsafeLiftIO m = GenHaxl $ \_env -> Done <$> m
 -- the Haxl monad.  This is morally unsafe, because you could then
 -- catch those exceptions in Haxl and observe the underlying execution
 -- order.  Not to be exposed to user code.
+--
+-- Note: this function does not catch async exceptions. This is a flaw in Haxl
+-- where it can sometimes leave the environment in a bad state when async
+-- exceptions are thrown (for example the cache may think a fetch is happening
+-- but the exception has stopped it). TODO would be to make Haxl async excpetion
+-- safe and then remove the rethrowAsyncExceptions below, but for now this is
+-- safer to avoid bugs. Additionally this would not protect you from async
+-- exceptions thrown while executing code in the scheduler, and so relying on
+-- this function to catch all async excpetions would be ambitious at best.
 unsafeToHaxlException :: GenHaxl u w a -> GenHaxl u w a
 unsafeToHaxlException (GenHaxl m) = GenHaxl $ \env -> do
-  r <- m env `Exception.catch` \e -> return (Throw e)
+  r <- m env `Exception.catch` \e -> do
+    rethrowAsyncExceptions e
+    return (Throw e)
   case r of
     Blocked cvar c ->
       return (Blocked cvar (Cont (unsafeToHaxlException (toHaxl c))))
