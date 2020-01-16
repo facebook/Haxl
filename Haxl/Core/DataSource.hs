@@ -143,20 +143,6 @@ data PerformFetch req
     -- ^ Fetches the data in the background, calling 'putResult' at
     -- any time in the future.  This is the best kind of fetch,
     -- because it provides the most concurrency.
-  | FutureFetch ([BlockedFetch req] -> IO (IO ()))
-    -- ^ Returns an IO action that, when performed, waits for the data
-    -- to be received.  This is the second-best type of fetch, because
-    -- the scheduler still has to perform the blocking wait at some
-    -- point in the future, and when it has multiple blocking waits to
-    -- perform, it can't know which one will return first.
-    --
-    -- Why not just forkIO the IO action to make a FutureFetch into a
-    -- BackgroundFetch?  The blocking wait will probably do a safe FFI
-    -- call, which means it needs its own OS thread.  If we don't want
-    -- to create an arbitrary number of OS threads, then FutureFetch
-    -- enables all the blocking waits to be done on a single thread.
-    -- Also, you might have a data source that requires all calls to
-    -- be made in the same OS thread.
 
 
 -- | A 'BlockedFetch' is a pair of

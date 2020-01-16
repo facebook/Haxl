@@ -137,13 +137,7 @@ runHaxlWithWrites env@Env{..} haxl = do
       ifTrace flags 3 $ printf "emptyRunQueue\n"
       haxls <- checkCompletions env
       case haxls of
-        JobNil -> do
-          case pendingWaits of
-            [] -> checkRequestStore env
-            wait:waits -> do
-              ifTrace flags 3 $ printf "invoking wait\n"
-              wait
-              emptyRunQueue env { pendingWaits = waits } -- check completions
+        JobNil -> checkRequestStore env
         _ -> reschedule env haxls
 
     checkRequestStore :: Env u w -> IO ()
@@ -153,15 +147,15 @@ runHaxlWithWrites env@Env{..} haxl = do
         then waitCompletions env
         else do
           writeIORef reqStoreRef noRequests
-          (_, waits) <- performRequestStore 0 env reqStore
-          ifTrace flags 3 $ printf "performFetches: %d waits\n" (length waits)
+          performRequestStore env reqStore
+          ifTrace flags 3 $ printf "performFetches\n"
           -- empty the cache if we're not caching.  Is this the best
           -- place to do it?  We do get to de-duplicate requests that
           -- happen simultaneously.
           when (caching flags == 0) $ do
             let DataCache dc = dataCache
             H.foldM (\_ (k, _) -> H.delete dc k) () dc
-          emptyRunQueue env{ pendingWaits = waits ++ pendingWaits }
+          emptyRunQueue env
 
     checkCompletions :: Env u w -> IO (JobList u w)
     checkCompletions Env{..} = do
