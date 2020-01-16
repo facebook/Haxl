@@ -195,11 +195,6 @@ data Env u w = Env
        -- become non-empty is how the scheduler blocks waiting for
        -- data fetches to return.
 
-  , pendingWaits :: [IO ()]
-       -- ^ this is a list of IO actions returned by 'FutureFetch'
-       -- data sources.  These do a blocking wait for the results of
-       -- some data fetch.
-
   , speculative :: {-# UNPACK #-} !Int
 
   , writeLogsRef :: {-# UNPACK #-} !(IORef (WriteTree w))
@@ -251,7 +246,6 @@ initEnvWithData states e (dcache, mcache) = do
     , runQueueRef = rq
     , submittedReqsRef = sr
     , completions = comps
-    , pendingWaits = []
     , speculative = 0
     , writeLogsRef = wl
     , writeLogsRefNoMemo = wlnm

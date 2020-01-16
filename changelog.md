@@ -1,7 +1,11 @@
+# Changes in version 2.3.0.0
+  * Removed `FutureFetch`
+
 # Changes in version 2.2.0.0
 
   * Use BasicHashTable for the Haxl DataCache instead of HashMap
   * API Changes in: Haxl.Core.DataCache, Haxl.Core.Fetch
+  * Removed support for GHC < 8.2
 
 # Changes in version 2.1.2.0
 

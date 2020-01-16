@@ -205,11 +205,8 @@ dataFetchWithInsert showFn insertFn req =
       -- eagerly, or batch them up.
       --
       case schedulerHint userEnv :: SchedulerHint r of
-        SubmitImmediately -> do
-          (_,ios) <- performFetches 0 env
-            [BlockedFetches [BlockedFetch req rvar]]
-          when (not (null ios)) $
-            error "bad data source:SubmitImmediately but returns FutureFetch"
+        SubmitImmediately ->
+          performFetches env [BlockedFetches [BlockedFetch req rvar]]
         TryToBatch ->
           -- add the request to the RequestStore and continue
           modifyIORef' reqStoreRef $ \bs ->
@@ -341,18 +338,16 @@ dupableCacheRequest request result = GenHaxl $ \Env{..} -> do
   return (Done ())
 
 performRequestStore
-   :: forall u w. Int -> Env u w -> RequestStore u -> IO (Int, [IO ()])
-performRequestStore n env reqStore =
-  performFetches n env (contents reqStore)
+   :: forall u w. Env u w -> RequestStore u -> IO ()
+performRequestStore env reqStore =
+  performFetches env (contents reqStore)
 
 -- | Issues a batch of fetches in a 'RequestStore'. After
 -- 'performFetches', all the requests in the 'RequestStore' are
 -- complete, and all of the 'ResultVar's are full.
 performFetches
-  :: forall u w. Int -> Env u w -> [BlockedFetches u] -> IO (Int, [IO ()])
-performFetches n env@Env{flags=f, statsRef=sref} jobs = do
-  let !n' = n + length jobs
-
+  :: forall u w. Env u w -> [BlockedFetches u] -> IO ()
+performFetches env@Env{flags=f, statsRef=sref} jobs = do
   t0 <- getTimestamp
 
   let
@@ -391,17 +386,15 @@ performFetches n env@Env{flags=f, statsRef=sref} jobs = do
       where
         dsName = dataSourceName (Proxy :: Proxy r)
 
-  fetches <- zipWithM applyFetch [n..] jobs
+  fetches <- zipWithM applyFetch [0..] jobs
 
-  waits <- scheduleFetches fetches (submittedReqsRef env) (flags env)
+  scheduleFetches fetches (submittedReqsRef env) (flags env)
 
   t1 <- getTimestamp
   let roundtime = fromIntegral (t1 - t0) / 1000000 :: Double
 
   ifTrace f 1 $
     printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
-
-  return (n', waits)
 
 data FetchToDo where
   FetchToDo
@@ -430,9 +423,6 @@ wrapFetchInCatch reqs fetch =
       -- sources themselves to catch (synchronous) exceptions.  Async
       -- exceptions aren't a problem because we're going to rethrow
       -- them all the way to runHaxl anyway.
-    FutureFetch f ->
-      FutureFetch $ \reqs -> f reqs `Exception.catch` (
-                     \e -> handler e >> return (return ()))
     BackgroundFetch f ->
       BackgroundFetch $ \reqs -> f reqs `Exception.catch` handler
   where
@@ -475,16 +465,6 @@ wrapFetchInStats !statsRef dataSource batchSize perform = do
         failures <- readIORef fail_ref
         updateFetchStats t0 (totalTime - innerTime) (totalAlloc - innerAlloc)
           batchSize failures
-    FutureFetch submit ->
-      FutureFetch $ \reqs -> do
-        fail_ref <- newIORef 0
-        let reqs' = map (addFailureCount fail_ref) reqs
-        (t0, submitTime, submitAlloc, wait) <- statsForIO (submit reqs')
-        return $ do
-          (_, waitTime, waitAlloc, _) <- statsForIO wait
-          failures <- readIORef fail_ref
-          updateFetchStats t0 (submitTime + waitTime) (submitAlloc + waitAlloc)
-            batchSize failures
     BackgroundFetch io -> do
       BackgroundFetch $ \reqs -> do
         startTime <- getTimestamp
@@ -561,7 +541,7 @@ time io = do
 
 -- | Start all the async fetches first, then perform the sync fetches before
 -- getting the results of the async fetches.
-scheduleFetches :: [FetchToDo] -> IORef ReqCountMap -> Flags -> IO [IO ()]
+scheduleFetches :: [FetchToDo] -> IORef ReqCountMap -> Flags -> IO ()
 scheduleFetches fetches ref flags = do
   -- update ReqCountmap for these fetches
   ifReport flags 1 $ sequence_
@@ -570,17 +550,11 @@ scheduleFetches fetches ref flags = do
     | FetchToDo (reqs :: [BlockedFetch r]) _f <- fetches
     ]
   fully_async_fetches
-  waits <- future_fetches
   async_fetches sync_fetches
-  return waits
  where
   fully_async_fetches :: IO ()
   fully_async_fetches = sequence_
     [f reqs | FetchToDo reqs (BackgroundFetch f) <- fetches]
-
-  future_fetches :: IO [IO ()]
-  future_fetches = sequence
-    [f reqs | FetchToDo reqs (FutureFetch f) <- fetches]
 
   async_fetches :: IO () -> IO ()
   async_fetches = compose

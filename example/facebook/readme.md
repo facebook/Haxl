@@ -161,11 +161,10 @@ data PerformFetch
   = SyncFetch  ([BlockedFetch req] -> IO ())
   | AsyncFetch ([BlockedFetch req] -> IO () -> IO ())
   | BackgroundFetch ([BlockedFetch req] -> IO ())
-  | FutureFetch ([BlockedFetch req] -> IO (IO ()))
 ```
 
 A data source can fetch either synchronously (`SyncFetch`),
-asynchronously (`AsyncFetch` or `FutureFetch`), or in the background
+asynchronously (`AsyncFetch`), or in the background
 (`BackgroundFetch`).  The `BackgroundFetch` option is the most
 flexible because it allows fetching to proceed concurrently with
 computation.

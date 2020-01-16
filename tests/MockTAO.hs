@@ -28,6 +28,10 @@ import Data.Typeable
 import Prelude ()
 import qualified Data.Map as Map
 import qualified Data.Text as Text
+import Control.Concurrent
+import Control.Exception
+import Control.Monad (void)
+
 
 import Haxl.Prelude
 import Haxl.Core
@@ -57,17 +61,20 @@ instance DataSourceName TAOReq where
 
 instance DataSource UserEnv TAOReq where
   fetch TAOState{..} _flags _user
-    | future = FutureFetch $ return . mapM_ doFetch
-    | otherwise = SyncFetch $ mapM_ doFetch
+    | future = BackgroundFetch $ \f -> do
+        mask_ $ void . forkIO $  mapM_ (doFetch True) f
+    | otherwise = SyncFetch $ mapM_ (doFetch False)
 
 initGlobalState :: Bool -> IO (State TAOReq)
 initGlobalState future = return TAOState { future=future }
 
-doFetch :: BlockedFetch TAOReq -> IO ()
-doFetch (BlockedFetch req@(AssocRangeId2s a b) r) =
-  case Map.lookup (a, b) assocs of
-    Nothing -> putFailure r . NotFound . Text.pack $ show req
-    Just result -> putSuccess r result
+doFetch ::  Bool -> BlockedFetch TAOReq -> IO ()
+doFetch bg (BlockedFetch req@(AssocRangeId2s a b) r) = put result
+  where put = if bg then putResultFromChildThread r else putResult r
+        result = case Map.lookup (a, b) assocs of
+          Nothing -> except . NotFound . Text.pack $ show req
+          Just result -> Right result
+
 
 assocs :: Map (Id,Id) [Id]
 assocs = Map.fromList [
