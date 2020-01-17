@@ -81,9 +81,19 @@ badDataSourceTest bg = TestCase $ do
   env <- testEnv bg $ \st ->
     st { failRelease = throwIO (DataSourceError "release") }
 
+  let
+    -- In background fetches the scheduler might happen to process the data
+    -- source result (FetchError in this case) before it processes the exception
+    -- from release. So we have to allow both cases.
+    releaseCatcher e
+      | Just DataSourceError{} <- fromException e = wombats
+      | Just FetchError{} <- fromException e =
+          if bg then wombats else Haxl.throw e
+      | otherwise = Haxl.throw e
+
   x <- runHaxl env $
         (dataFetch (FailAfter 0) + wombatsMany)
-          `Haxl.catch` \DataSourceError{} -> wombats
+          `Haxl.catch` releaseCatcher
 
   assertEqual "badDataSourceTest7" x 3
 
