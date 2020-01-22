@@ -137,6 +137,7 @@ test-suite test
     ParallelTests
     ProfileTests
     SleepDataSource
+    StatsTests
     TestBadDataSource
     TestExampleDataSource
     TestTypes

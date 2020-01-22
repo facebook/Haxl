@@ -1,3 +1,6 @@
+# Changes in version <next>
+  * Added fetchBatchId to FetchStats
+
 # Changes in version 2.3.0.0
   * Removed `FutureFetch`
 

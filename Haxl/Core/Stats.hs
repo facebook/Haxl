@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Types and operations for statistics and profiling.  Most users
@@ -25,6 +26,7 @@ module Haxl.Core.Stats
   , numFetches
   , ppStats
   , ppFetchStats
+  , aggregateFetchBatches
 
   -- * Profiling
   , Profile
@@ -43,12 +45,13 @@ module Haxl.Core.Stats
   ) where
 
 import Data.Aeson
+import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Int
-import Data.List (intercalate, maximumBy, minimumBy)
+import Data.List (intercalate, maximumBy, minimumBy, sortOn, groupBy)
 import Data.Semigroup (Semigroup)
-import Data.Ord (comparing)
+import Data.Ord (comparing, Down(..))
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import Text.Printf
@@ -118,6 +121,7 @@ data FetchStats
     , fetchDuration :: {-# UNPACK #-} !Microseconds
     , fetchSpace :: {-# UNPACK #-} !Int64
     , fetchFailures :: {-# UNPACK #-} !Int
+    , fetchBatchId :: {-# UNPACK #-} !Int
     }
 
     -- | The stack trace of a call to 'dataFetch'.  These are collected
@@ -126,7 +130,7 @@ data FetchStats
     { fetchReq :: String
     , fetchStack :: [String]
     }
-  deriving (Show)
+  deriving (Eq, Show)
 
 -- | Pretty-print RoundStats.
 ppFetchStats :: FetchStats -> String
@@ -136,6 +140,14 @@ ppFetchStats FetchStats{..} =
     (fromIntegral fetchDuration / 1000 :: Double)  fetchSpace fetchFailures
 ppFetchStats (FetchCall r ss) = show r ++ '\n':show ss
 
+-- | Aggregate stats merging FetchStats from the same dispatched batch into one.
+aggregateFetchBatches :: ([FetchStats] -> a) -> Stats -> [a]
+aggregateFetchBatches agg (Stats fetches) =
+      map agg $
+      groupBy ((==) `on` fetchBatchId) $
+      sortOn (Down . fetchBatchId)
+      [f | f@FetchStats{} <- fetches]
+
 instance ToJSON FetchStats where
   toJSON FetchStats{..} = object
     [ "datasource" .= fetchDataSource
@@ -144,6 +156,7 @@ instance ToJSON FetchStats where
     , "duration" .= fetchDuration
     , "allocation" .= fetchSpace
     , "failures" .= fetchFailures
+    , "bachid" .= fetchBatchId
     ]
   toJSON (FetchCall req strs) = object
     [ "request" .= req
