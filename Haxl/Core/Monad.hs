@@ -163,6 +163,10 @@ data Env u w = Env
   , statsRef     :: {-# UNPACK #-} !(IORef Stats)
       -- ^ statistics, collected according to the 'report' level in 'flags'.
 
+  , statsBatchIdRef :: {-# UNPACK #-} !(IORef Int)
+     -- ^ keeps track of a Unique ID for each batch dispatched with stats
+     -- enabled, for aggregating after.
+
   , profLabel    :: ProfileLabel
       -- ^ current profiling label, see 'withLabel'
 
@@ -226,6 +230,7 @@ caches env = (dataCache env, memoCache env)
 initEnvWithData :: StateStore -> u -> Caches u w -> IO (Env u w)
 initEnvWithData states e (dcache, mcache) = do
   sref <- newIORef emptyStats
+  sbref <- newIORef 0
   pref <- newIORef emptyProfile
   rs <- newIORef noRequests          -- RequestStore
   rq <- newIORef JobNil
@@ -240,6 +245,7 @@ initEnvWithData states e (dcache, mcache) = do
     , userEnv = e
     , states = states
     , statsRef = sref
+    , statsBatchIdRef = sbref
     , profLabel = "MAIN"
     , profRef = pref
     , reqStoreRef = rs
@@ -865,11 +871,11 @@ unsafeLiftIO m = GenHaxl $ \_env -> Done <$> m
 -- Note: this function does not catch async exceptions. This is a flaw in Haxl
 -- where it can sometimes leave the environment in a bad state when async
 -- exceptions are thrown (for example the cache may think a fetch is happening
--- but the exception has stopped it). TODO would be to make Haxl async excpetion
+-- but the exception has stopped it). TODO would be to make Haxl async exception
 -- safe and then remove the rethrowAsyncExceptions below, but for now this is
 -- safer to avoid bugs. Additionally this would not protect you from async
 -- exceptions thrown while executing code in the scheduler, and so relying on
--- this function to catch all async excpetions would be ambitious at best.
+-- this function to catch all async exceptions would be ambitious at best.
 unsafeToHaxlException :: GenHaxl u w a -> GenHaxl u w a
 unsafeToHaxlException (GenHaxl m) = GenHaxl $ \env -> do
   r <- m env `Exception.catch` \e -> do

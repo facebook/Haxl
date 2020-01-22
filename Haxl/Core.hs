@@ -50,6 +50,7 @@ module Haxl.Core (
   , numFetches
   , ppStats
   , ppFetchStats
+  , aggregateFetchBatches
   , Profile
   , emptyProfile
   , profile

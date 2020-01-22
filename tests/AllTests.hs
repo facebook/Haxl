@@ -19,6 +19,7 @@ import TestBadDataSource
 import FullyAsyncTest
 import WriteTests
 import ParallelTests
+import StatsTests
 
 import Test.HUnit
 
@@ -37,4 +38,5 @@ allTests = TestList
   , TestLabel "FullyAsyncTest" FullyAsyncTest.tests
   , TestLabel "WriteTest" WriteTests.tests
   , TestLabel "ParallelTest" ParallelTests.tests
+  , TestLabel "StatsTests" StatsTests.tests
   ]
