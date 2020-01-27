@@ -350,16 +350,6 @@ performFetches
 performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
   t0 <- getTimestamp
 
-  let
-    roundstats =
-      [ (dataSourceName (Proxy :: Proxy r), length reqs)
-      | BlockedFetches (reqs :: [BlockedFetch r]) <- jobs ]
-
-  ifTrace f 1 $
-    printf "Batch data fetch (%s)\n" $
-      intercalate (", "::String) $
-        map (\(name,num) -> printf "%d %s" num (Text.unpack name)) roundstats
-
   ifTrace f 3 $
     forM_ jobs $ \(BlockedFetches reqs) ->
       forM_ reqs $ \(BlockedFetch r _) -> putStrLn (showp r)
@@ -555,9 +545,26 @@ scheduleFetches fetches ref flags = do
         \m -> (addToCountMap (Proxy :: Proxy r) (length reqs) m, ())
     | FetchToDo (reqs :: [BlockedFetch r]) _f <- fetches
     ]
+
+  ifTrace flags 1 $ printf "Batch data fetch round: %s\n" $
+     intercalate (", "::String) $
+        map (\(c, n, ds) -> printf "%s %s %d" n ds c) stats
+
   fully_async_fetches
   async_fetches sync_fetches
  where
+
+  fetchName :: forall req . PerformFetch req -> String
+  fetchName (BackgroundFetch _) = "background"
+  fetchName (AsyncFetch _) = "async"
+  fetchName (SyncFetch _) = "sync"
+
+  srcName :: forall req . (DataSourceName req) => [BlockedFetch req] -> String
+  srcName _ = Text.unpack $ dataSourceName (Proxy :: Proxy req)
+
+  stats = [(length reqs, fetchName f, srcName reqs)
+          | FetchToDo reqs f <- fetches]
+
   fully_async_fetches :: IO ()
   fully_async_fetches = sequence_
     [f reqs | FetchToDo reqs (BackgroundFetch f) <- fetches]
