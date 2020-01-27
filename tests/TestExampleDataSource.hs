@@ -209,7 +209,7 @@ dumpCacheTest = TestCase $ do
   env <- testEnv
   runHaxl env loadCache
   str <- runHaxl env dumpCacheAsHaskell
-  lcPath <- loadCachePath
+  lcPath <-loadCachePath
   loadcache <- readFile lcPath
   -- The order of 'cacheRequest ...' calls is nondeterministic and
   -- differs among GHC versions, so we sort the lines for comparison.
