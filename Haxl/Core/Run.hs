@@ -55,11 +55,20 @@ runHaxl env haxl = fst <$> runHaxlWithWrites env haxl
 runHaxlWithWrites :: forall u w a. Env u w -> GenHaxl u w a -> IO (a, [w])
 runHaxlWithWrites env@Env{..} haxl = do
   result@(IVar resultRef) <- newIVar -- where to put the final result
+  ifTraceLog <- do
+    if trace flags < 3
+    then return $ \_ -> return ()
+    else do
+      start <- getTimestamp
+      return $ \s -> do
+        now <- getTimestamp
+        let t = fromIntegral (now - start) / 1000.0 :: Double
+        printf "%.1fms: %s" t (s :: String)
   let
     -- Run a job, and put its result in the given IVar
     schedule :: Env u w -> JobList u w -> GenHaxl u w b -> IVar u w b -> IO ()
     schedule env@Env{..} rq (GenHaxl run) (IVar !ref) = do
-      ifTrace flags 3 $ printf "schedule: %d\n" (1 + lengthJobList rq)
+      ifTraceLog $ printf "schedule: %d\n" (1 + lengthJobList rq)
       let {-# INLINE result #-}
           result r = do
             e <- readIORef ref
@@ -134,7 +143,7 @@ runHaxlWithWrites env@Env{..} haxl = do
 
     emptyRunQueue :: Env u w -> IO ()
     emptyRunQueue env@Env{..} = do
-      ifTrace flags 3 $ printf "emptyRunQueue\n"
+      ifTraceLog $ printf "emptyRunQueue\n"
       haxls <- checkCompletions env
       case haxls of
         JobNil -> checkRequestStore env
@@ -146,9 +155,9 @@ runHaxlWithWrites env@Env{..} haxl = do
       if RequestStore.isEmpty reqStore
         then waitCompletions env
         else do
+          ifTraceLog $ printf "performFetches\n"
           writeIORef reqStoreRef noRequests
           performRequestStore env reqStore
-          ifTrace flags 3 $ printf "performFetches\n"
           -- empty the cache if we're not caching.  Is this the best
           -- place to do it?  We do get to de-duplicate requests that
           -- happen simultaneously.
@@ -159,7 +168,7 @@ runHaxlWithWrites env@Env{..} haxl = do
 
     checkCompletions :: Env u w -> IO (JobList u w)
     checkCompletions Env{..} = do
-      ifTrace flags 3 $ printf "checkCompletions\n"
+      ifTraceLog $ printf "checkCompletions\n"
       comps <- atomicallyOnBlocking (LogicBug ReadingCompletionsFailedRun) $ do
         c <- readTVar completions
         writeTVar completions []
@@ -167,7 +176,7 @@ runHaxlWithWrites env@Env{..} haxl = do
       case comps of
         [] -> return JobNil
         _ -> do
-          ifTrace flags 3 $ printf "%d complete\n" (length comps)
+          ifTraceLog $ printf "%d complete\n" (length comps)
           let
               getComplete (CompleteReq a (IVar cr) allocs) = do
                 when (allocs < 0) $ do
@@ -176,7 +185,7 @@ runHaxlWithWrites env@Env{..} haxl = do
                 r <- readIORef cr
                 case r of
                   IVarFull _ -> do
-                    ifTrace flags 3 $ printf "existing result\n"
+                    ifTraceLog $ printf "existing result\n"
                     return JobNil
                     -- this happens if a data source reports a result,
                     -- and then throws an exception.  We call putResult
@@ -192,7 +201,7 @@ runHaxlWithWrites env@Env{..} haxl = do
 
     waitCompletions :: Env u w -> IO ()
     waitCompletions env@Env{..} = do
-      ifTrace flags 3 $ printf "waitCompletions\n"
+      ifTraceLog $ printf "waitCompletions\n"
       atomicallyOnBlocking (LogicBug ReadingCompletionsFailedRun) $ do
         c <- readTVar completions
         when (null c) retry
