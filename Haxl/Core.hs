@@ -88,7 +88,7 @@ module Haxl.Core (
 
     -- ** Default fetch implementations
   , asyncFetch, asyncFetchWithDispatch, asyncFetchAcquireRelease
-  , backgroundFetchAcquireRelease
+  , backgroundFetchAcquireRelease, backgroundFetchAcquireReleaseMVar
   , stubFetch
   , syncFetch
 

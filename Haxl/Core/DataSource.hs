@@ -40,6 +40,7 @@ module Haxl.Core.DataSource
   , asyncFetch, asyncFetchWithDispatch
   , asyncFetchAcquireRelease
   , backgroundFetchAcquireRelease
+  , backgroundFetchAcquireReleaseMVar
   , stubFetch
   , syncFetch
 
@@ -375,6 +376,75 @@ submitFetch
 submitFetch service fetchFn (BlockedFetch request result)
   = (putResult result =<<) <$> fetchFn service request
 
+backgroundFetchAcquireReleaseMVar
+  :: IO service
+  -- ^ Resource acquisition for this datasource
+
+  -> (service -> IO ())
+  -- ^ Resource release
+
+  -> (service -> Int -> MVar () -> IO ())
+  -- ^ Dispatch all the pending requests and when ready trigger the given mvar
+
+  -> (service -> IO ())
+  -- ^ Process all requests
+
+  -> (forall a. service -> request a -> IO (IO (Either SomeException a)))
+  -- ^ Submits an individual request to the service.
+
+  -> State request
+  -- ^ Currently unused.
+
+  -> Flags
+  -- ^ Currently unused.
+
+  -> u
+  -- ^ Currently unused.
+
+  -> PerformFetch request
+
+backgroundFetchAcquireReleaseMVar
+  acquire release dispatch process enqueue _state _flags _si =
+  BackgroundFetch $ \requests -> do
+    mvar <- newEmptyMVar
+    mask $ \restore -> do
+      (cap, _) <- threadCapability =<< myThreadId
+      service <- acquire
+      getResults <- (do
+        results <- restore $ mapM (submit service) requests
+        -- dispatch takes ownership of mvar, so we call it under `mask` to
+        -- ensure that it can safely manage that resource.
+        dispatch service cap mvar
+        return (sequence_ results)) `onException` release service
+      -- now spawn off a background thread to wait on the dispatch to finish
+      _tid <- forkOn cap $ do
+        takeMVar mvar
+          -- todo: it is possible that we would want to do
+          -- this processResults on the main scheduler thread for performance
+          -- which might reduce thread switching, especially for large batches
+          -- but for now this seems to work just fine
+        let rethrow = rethrowFromBg requests
+        _ <- finally
+          (restore $ (process service >> getResults) `catch` rethrow)
+          (release service `catch` rethrow)
+        return ()
+      return ()
+  where
+    rethrowFromBg requests (e :: SomeException) = do
+      mapM_ (rethrow1 e) requests
+      rethrowAsyncExceptions e
+    rethrow1 e (BlockedFetch _ result) =
+      putResultFromChildThread result (Left e)
+    -- similar to submitFetch but uses putResultFromChildThread
+    submit service (BlockedFetch request result) =
+      (putResultFromChildThread result =<<) <$> enqueue service request
+
+
+{- |
+A version of 'backgroundFetchAcquireReleaseMVar' where the dispatch function
+is given a 'StablePtr PrimMVar' which is more useful for C based APIs.
+-}
+
 backgroundFetchAcquireRelease
   :: IO service
   -- ^ Resource acquisition for this datasource
@@ -403,38 +473,9 @@ backgroundFetchAcquireRelease
   -> PerformFetch request
 
 backgroundFetchAcquireRelease
-  acquire release dispatch process enqueue _state _flags _si =
-  BackgroundFetch $ \requests -> do
-    mvar <- newEmptyMVar
-    mask $ \restore -> do
-      (cap, _) <- threadCapability =<< myThreadId
-      service <- acquire
-      getResults <- (do
-        results <- restore $ mapM (submit service) requests
-        -- dispatch takes ownership of sp, so we call it under `mask` to
-        -- ensure that it can safely manage that resource.
-        sp <- newStablePtrPrimMVar mvar
-        dispatch service cap sp
-        return (sequence_ results)) `onException` release service
-      -- now spawn off a background thread to wait on the dispatch to finish
-      _tid <- forkOn cap $ do
-        takeMVar mvar
-          -- todo: it is possible that we would want to do
-          -- this processResults on the main scheduler thread for performance
-          -- which might reduce thread switching, especially for large batches
-          -- but for now this seems to work just fine
-        let rethrow = rethrowFromBg requests
-        _ <- finally
-          (restore $ (process service >> getResults) `catch` rethrow)
-          (release service `catch` rethrow)
-        return ()
-      return ()
-  where
-    rethrowFromBg requests (e :: SomeException) = do
-      mapM_ (rethrow1 e) requests
-      rethrowAsyncExceptions e
-    rethrow1 e (BlockedFetch _ result) =
-      putResultFromChildThread result (Left e)
-    -- similar to submitFetch but uses putResultFromChildThread
-    submit service (BlockedFetch request result) =
-      (putResultFromChildThread result =<<) <$> enqueue service request
+  a r dispatch = backgroundFetchAcquireReleaseMVar
+                 a
+                 r
+                 (\s c mvar -> do
+                     sp <- newStablePtrPrimMVar mvar
+                     dispatch s c sp)
