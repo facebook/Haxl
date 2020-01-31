@@ -66,6 +66,7 @@ import Control.Concurrent ( threadCapability
                           , myThreadId )
 import Control.Concurrent.MVar
 import Foreign.StablePtr
+import System.Mem (setAllocationCounter)
 
 -- ---------------------------------------------------------------------------
 -- DataSource class
@@ -431,13 +432,20 @@ backgroundFetchAcquireReleaseMVar
       return ()
   where
     rethrowFromBg requests (e :: SomeException) = do
-      mapM_ (rethrow1 e) requests
+      mapM_ (rethrow1bg e) requests
       rethrowAsyncExceptions e
-    rethrow1 e (BlockedFetch _ result) =
-      putResultFromChildThread result (Left e)
-    -- similar to submitFetch but uses putResultFromChildThread
+    putFromBg result r = do
+      -- See comment on putResultFromChildThread
+      -- We must set the allocation counter to 0 here in case there are more
+      -- results in the batch.
+      -- This is safe as we own this thread, and know that there
+      -- is no allocation limits set.
+      putResultFromChildThread result r
+      setAllocationCounter 0
+    rethrow1bg e (BlockedFetch _ result) =
+      putFromBg result (Left e)
     submit service (BlockedFetch request result) =
-      (putResultFromChildThread result =<<) <$> enqueue service request
+      (putFromBg result =<<) <$> enqueue service request
 
 
 {- |

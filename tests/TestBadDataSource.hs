@@ -15,11 +15,17 @@ import Haxl.Core
 import Data.IORef
 import Test.HUnit
 import Control.Exception
+import System.Mem
 
 import ExampleDataSource
 import BadDataSource
 
 testEnv impl fn = do
+  -- Use allocation limits, just to make sure haxl properly behaves and
+  -- doesn't reset this internally somewhere.
+  -- `go` will disable this
+  setAllocationCounter 5000000 -- 5 meg should be enough, uses ~100k atm
+  enableAllocationLimit
   exstate <- ExampleDataSource.initGlobalState
   badstate <- BadDataSource.initGlobalState impl
   let st = stateSet exstate $ stateSet (fn badstate) stateEmpty
@@ -32,7 +38,7 @@ wombatsMany :: GenHaxl () () Int
 wombatsMany = length <$> listWombats 7
 
 go :: FetchImpl -> Test
-go impl = TestCase $ do
+go impl = TestCase $ flip finally disableAllocationLimit $ do
   -- test that a failed acquire doesn't fail the other requests
   ref <- newIORef False
   env <- testEnv impl $ \st ->

@@ -14,7 +14,6 @@ import Haxl.Prelude
 import Haxl.Core
 import Haxl.Core.Monad
 import Haxl.Core.Stats
-import Haxl.DataSource.ConcurrentIO
 
 import Test.HUnit
 
@@ -80,20 +79,37 @@ exceptions = do
 -- Test that we correctly attribute work done in child threads when
 -- using BackgroundFetch to the caller of runHaxl. This is important
 -- for correct accounting when relying on allocation limits.
-threadAlloc :: Assertion
-threadAlloc = do
-  st <- mkConcurrentIOState
-  env <- initEnv (stateSet st stateEmpty) ()
+threadAlloc :: Integer -> Assertion
+threadAlloc batches = do
+  env' <- initEnv (stateSet mkWorkState stateEmpty) ()
+  let env = env'  { flags = (flags env') { report = 2 } }
   a0 <- getAllocationCounter
-  _x <- runHaxl env $ work 100000
+  let
+    wsize = 100000
+    w = forM [wsize..(wsize+batches-1)] work
+  _x <- runHaxl env $ sum <$> w
   a1 <- getAllocationCounter
-  assertBool "threadAlloc" $ (a0 - a1) > 1000000
+  let
+    lower = fromIntegral $ 1000000 * batches
+    upper = fromIntegral $ 25000000 * batches
+  assertBool "threadAlloc lower bound" $ (a0 - a1) > lower
+  assertBool "threadAlloc upper bound" $ (a0 - a1) < upper
     -- the result was 16MB on 64-bit, or around 25KB if we miss the allocs
-    -- in the child thread.
+    -- in the child thread. For batched it should be similarly scaled.
+    -- When we do not reset the counter for each batch was
+    -- scaled again by number of batches.
+
+  stats <- readIORef (statsRef env)
+  assertEqual
+    "threadAlloc: batches"
+    [fromIntegral batches]
+    (aggregateFetchBatches length stats)
+  -- if we actually do more than 1 batch then the above test is not useful
 
 
 tests = TestList
   [ TestLabel "collectsdata" $ TestCase collectsdata
   , TestLabel "exceptions" $ TestCase exceptions
-  , TestLabel "threads" $ TestCase threadAlloc
+  , TestLabel "threads" $ TestCase (threadAlloc 1)
+  , TestLabel "threads with batch" $ TestCase (threadAlloc 50)
   ]
