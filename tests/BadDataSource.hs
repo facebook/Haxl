@@ -18,10 +18,10 @@
 
 module BadDataSource (
     -- * initialise the state
-    State(..), initGlobalState,
+    State(..), initGlobalState, FetchImpl(..),
 
     -- * requests for this data source
-    FailAfter(..),
+    FailAfter(..)
   ) where
 
 import Haxl.Prelude
@@ -33,6 +33,7 @@ import Control.Exception
 import Data.Typeable
 import Data.Hashable
 import Control.Concurrent
+import Control.Monad (void)
 
 import GHC.Conc ( PrimMVar )
 import Foreign.StablePtr
@@ -40,6 +41,8 @@ import Foreign.C.Types ( CInt(..) )
 
 foreign import ccall safe
   hs_try_putmvar :: CInt -> StablePtr PrimMVar -> IO ()
+
+data FetchImpl = Async | Background | BackgroundMVar
 
 data FailAfter a where
   FailAfter :: Int -> FailAfter Int
@@ -62,7 +65,7 @@ instance StateKey FailAfter where
          , failDispatch :: IO ()
          , failWaitDelay :: Int
          , failWait :: IO ()
-         , failUseBackground :: Bool
+         , failImpl :: FetchImpl
         }
 
 instance DataSourceName FailAfter where
@@ -71,33 +74,35 @@ instance DataSourceName FailAfter where
 
 instance DataSource u FailAfter where
   fetch state@FailAfterState{..}
-    | failUseBackground = bgFetch
+    | Background <- failImpl = backgroundFetchAcquireRelease
         acquire release dispatchbg wait
         submit state
-    | otherwise = asyncFetchAcquireRelease
+    | BackgroundMVar <- failImpl = backgroundFetchAcquireReleaseMVar
+        acquire release dispatchbgMVar wait
+        submit state
+    | Async <- failImpl = asyncFetchAcquireRelease
        acquire release dispatch wait
        submit state
    where
-     bgFetch = backgroundFetchAcquireRelease
      acquire = do threadDelay failAcquireDelay; failAcquire
      release _ = do threadDelay failReleaseDelay; failRelease
      dispatch _ = do threadDelay failDispatchDelay; failDispatch
-     dispatchbg _ i c = (do
+     dispatchBase put = (do
                           failDispatch
                           _ <- mask_ $ forkIO $ finally
                             (threadDelay failDispatchDelay)
-                            putmvar
-                          return ()) `onException` putmvar
-                         where
-                           putmvar = hs_try_putmvar (fromIntegral i) c
+                            put
+                          return ()) `onException` put
+     dispatchbg _ c m = dispatchBase (hs_try_putmvar (fromIntegral c) m)
+     dispatchbgMVar _ _ m = dispatchBase (void $ tryPutMVar m ())
      wait _ = do threadDelay failWaitDelay; failWait
      submit :: () -> FailAfter a -> IO (IO (Either SomeException a))
      submit _ (FailAfter t) = do
        threadDelay t
        return (return (Left (toException (FetchError "failed request"))))
 
-initGlobalState :: Bool -> IO (State FailAfter)
-initGlobalState useBackground = do
+initGlobalState :: FetchImpl -> IO (State FailAfter)
+initGlobalState impl = do
   return FailAfterState
     { failAcquireDelay = 0
     , failAcquire = return ()
@@ -107,5 +112,5 @@ initGlobalState useBackground = do
     , failDispatch = return ()
     , failWaitDelay = 0
     , failWait = return ()
-    , failUseBackground = useBackground
+    , failImpl = impl
     }

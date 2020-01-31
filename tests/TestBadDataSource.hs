@@ -19,9 +19,9 @@ import Control.Exception
 import ExampleDataSource
 import BadDataSource
 
-testEnv bg fn = do
+testEnv impl fn = do
   exstate <- ExampleDataSource.initGlobalState
-  badstate <- BadDataSource.initGlobalState bg
+  badstate <- BadDataSource.initGlobalState impl
   let st = stateSet exstate $ stateSet (fn badstate) stateEmpty
   initEnv st ()
 
@@ -31,11 +31,11 @@ wombats = length <$> listWombats 3
 wombatsMany :: GenHaxl () () Int
 wombatsMany = length <$> listWombats 7
 
-badDataSourceTest :: Bool -> Test
-badDataSourceTest bg = TestCase $ do
+go :: FetchImpl -> Test
+go impl = TestCase $ do
   -- test that a failed acquire doesn't fail the other requests
   ref <- newIORef False
-  env <- testEnv bg $ \st ->
+  env <- testEnv impl $ \st ->
     st { failAcquire = throwIO (DataSourceError "acquire")
        , failRelease = writeIORef ref True }
 
@@ -50,7 +50,7 @@ badDataSourceTest bg = TestCase $ do
 
   -- test that a failed dispatch doesn't fail the other requests
   ref <- newIORef False
-  env <- testEnv bg $ \st ->
+  env <- testEnv impl $ \st ->
     st { failDispatch = throwIO (DataSourceError "dispatch")
        , failRelease = writeIORef ref True }
 
@@ -64,7 +64,7 @@ badDataSourceTest bg = TestCase $ do
   assertEqual "badDataSourceTest4" True =<< readIORef ref
 
   -- test that a failed wait is a DataSourceError
-  env <- testEnv bg $ \st ->
+  env <- testEnv impl $ \st ->
     st { failWait = throwIO (DataSourceError "wait") }
 
   x <- runHaxl env $
@@ -78,17 +78,21 @@ badDataSourceTest bg = TestCase $ do
 
   -- test that a failed release is still a DataSourceError, even
   -- though the request will have completed successfully
-  env <- testEnv bg $ \st ->
+  env <- testEnv impl $ \st ->
     st { failRelease = throwIO (DataSourceError "release") }
 
   let
     -- In background fetches the scheduler might happen to process the data
     -- source result (FetchError in this case) before it processes the exception
     -- from release. So we have to allow both cases.
+    isBg = case impl of
+      Background -> True
+      BackgroundMVar -> True
+      _ -> False
     releaseCatcher e
       | Just DataSourceError{} <- fromException e = wombats
       | Just FetchError{} <- fromException e =
-          if bg then wombats else Haxl.throw e
+          if isBg then wombats else Haxl.throw e
       | otherwise = Haxl.throw e
 
   x <- runHaxl env $
@@ -99,7 +103,7 @@ badDataSourceTest bg = TestCase $ do
 
   -- test that if we don't throw anything we get the result
   -- (which is a fetch error for this source)
-  env <- testEnv bg id
+  env <- testEnv impl id
   x <- runHaxl env $
         (dataFetch (FailAfter 0) + wombatsMany)
           `Haxl.catch` \FetchError{} -> wombats
@@ -110,6 +114,7 @@ badDataSourceTest bg = TestCase $ do
 
 
 tests = TestList
-  [ TestLabel "badDataSourceTest async" (badDataSourceTest False)
-  , TestLabel "badDataSourceTest background" (badDataSourceTest True)
+  [ TestLabel "badDataSourceTest async" (go Async)
+  , TestLabel "badDataSourceTest background" (go Background)
+  , TestLabel "badDataSourceTest backgroundMVar" (go BackgroundMVar)
   ]
