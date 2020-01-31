@@ -499,7 +499,7 @@ data ResultVal a w
 
 done :: ResultVal a w -> IO (Result u w a)
 done (Ok a _) = return (Done a)
-done (ThrowHaxl e _) = return (Throw e)
+done (ThrowHaxl e _) = raise e
 done (ThrowIO e) = throwIO e
 
 eitherToResultThrowIO :: Either SomeException a -> ResultVal a w
