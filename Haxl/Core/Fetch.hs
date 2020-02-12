@@ -114,10 +114,10 @@ cachedWithInsert showFn insertFn Env{..} req = do
   mbRes <- DataCache.lookup req dataCache
   case mbRes of
     Nothing -> doFetch
-    Just (IVar cr) -> do
+    Just i@IVar{ivarRef = cr} -> do
       e <- readIORef cr
       case e of
-        IVarEmpty _ -> return (CachedNotFetched (IVar cr))
+        IVarEmpty _ -> return (CachedNotFetched i)
         IVarFull r -> do
           ifTrace flags 3 $ putStrLn $ case r of
             ThrowIO{} -> "Cached error: " ++ showFn req
@@ -287,7 +287,7 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \Env{..} -> do
       ivar <- newFullIVar result
       insertFn req ivar dataCache
       done result
-    Just (IVar cr) -> do
+    Just IVar{ivarRef = cr} -> do
       e <- readIORef cr
       case e of
         IVarEmpty _ -> corruptCache

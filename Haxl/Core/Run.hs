@@ -54,7 +54,7 @@ runHaxl env haxl = fst <$> runHaxlWithWrites env haxl
 
 runHaxlWithWrites :: forall u w a. Env u w -> GenHaxl u w a -> IO (a, [w])
 runHaxlWithWrites env@Env{..} haxl = do
-  result@(IVar resultRef) <- newIVar -- where to put the final result
+  result@IVar{ivarRef = resultRef} <- newIVar -- where to put the final result
   ifTraceLog <- do
     if trace flags < 3
     then return $ \_ -> return ()
@@ -67,7 +67,7 @@ runHaxlWithWrites env@Env{..} haxl = do
   let
     -- Run a job, and put its result in the given IVar
     schedule :: Env u w -> JobList u w -> GenHaxl u w b -> IVar u w b -> IO ()
-    schedule env@Env{..} rq (GenHaxl run) (IVar !ref) = do
+    schedule env@Env{..} rq (GenHaxl run) ivar@IVar{ivarRef = !ref} = do
       ifTraceLog $ printf "schedule: %d\n" (1 + lengthJobList rq)
       let {-# INLINE result #-}
           result r = do
@@ -109,8 +109,8 @@ runHaxlWithWrites env@Env{..} haxl = do
         Right (Throw ex) -> do
           wt <- readIORef writeLogsRef
           result (ThrowHaxl ex wt)
-        Right (Blocked ivar fn) -> do
-          addJob env (toHaxl fn) (IVar ref) ivar
+        Right (Blocked i fn) -> do
+          addJob env (toHaxl fn) ivar i
           reschedule env rq
 
     -- Here we have a choice:
@@ -178,7 +178,7 @@ runHaxlWithWrites env@Env{..} haxl = do
         _ -> do
           ifTraceLog $ printf "%d complete\n" (length comps)
           let
-              getComplete (CompleteReq a (IVar cr) allocs) = do
+              getComplete (CompleteReq a IVar{ivarRef = !cr} allocs) = do
                 when (allocs < 0) $ do
                   cur <- getAllocationCounter
                   setAllocationCounter (cur + allocs)

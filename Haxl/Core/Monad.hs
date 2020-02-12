@@ -408,7 +408,9 @@ lengthJobList (JobCons _ _ _ j) = 1 + lengthJobList j
 
 -- | A synchronisation point.  It either contains a value, or a list
 -- of computations waiting for the value.
-newtype IVar u w a = IVar (IORef (IVarContents u w a))
+newtype IVar u w a = IVar
+  { ivarRef :: IORef (IVarContents u w a)
+  }
 
 data IVarContents u w a
   = IVarFull (ResultVal a w)
@@ -419,13 +421,17 @@ data IVarContents u w a
     -- faster (benchmarked with tests/MonadBench.hs).
 
 newIVar :: IO (IVar u w a)
-newIVar = IVar <$> newIORef (IVarEmpty JobNil)
+newIVar = do
+  ivarRef <- newIORef (IVarEmpty JobNil)
+  return IVar{..}
 
 newFullIVar :: ResultVal a w -> IO (IVar u w a)
-newFullIVar r = IVar <$> newIORef (IVarFull r)
+newFullIVar r = do
+  ivarRef <- newIORef (IVarFull r)
+  return IVar{..}
 
 getIVar :: IVar u w a -> GenHaxl u w a
-getIVar i@(IVar !ref) = GenHaxl $ \Env{..} -> do
+getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a _wt) -> return (Done a)
@@ -435,18 +441,18 @@ getIVar i@(IVar !ref) = GenHaxl $ \Env{..} -> do
 
 -- Just a specialised version of getIVar, for efficiency in <*>
 getIVarApply :: IVar u w (a -> b) -> a -> GenHaxl u w b
-getIVarApply (IVar !ref) a = GenHaxl $ \Env{..} -> do
+getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok f _wt) -> return (Done (f a))
     IVarFull (ThrowHaxl e _wt) -> return (Throw e)
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
-      return (Blocked (IVar ref) (Cont (getIVarApply (IVar ref) a)))
+      return (Blocked i (Cont (getIVarApply i a)))
 
 -- Another specialised version of getIVar, for efficiency in cachedComputation
 getIVarWithWrites :: IVar u w a -> GenHaxl u w a
-getIVarWithWrites (IVar !ref) = GenHaxl $ \Env{..} -> do
+getIVarWithWrites i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a wt) -> do
@@ -457,10 +463,10 @@ getIVarWithWrites (IVar !ref) = GenHaxl $ \Env{..} -> do
       return  (Throw e)
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
-      return (Blocked (IVar ref) (Cont (getIVarWithWrites (IVar ref))))
+      return (Blocked i (Cont (getIVarWithWrites i)))
 
 putIVar :: IVar u w a -> ResultVal a w -> Env u w -> IO ()
-putIVar (IVar ref) a Env{..} = do
+putIVar IVar{ivarRef = !ref} a Env{..} = do
   e <- readIORef ref
   case e of
     IVarEmpty jobs -> do
@@ -474,7 +480,7 @@ putIVar (IVar ref) a Env{..} = do
 
 {-# INLINE addJob #-}
 addJob :: Env u w -> GenHaxl u w b -> IVar u w b -> IVar u w a -> IO ()
-addJob env !haxl !resultIVar (IVar !ref) =
+addJob env !haxl !resultIVar IVar{ivarRef = !ref} =
   modifyIORef' ref $ \contents ->
     case contents of
       IVarEmpty list -> IVarEmpty (JobCons env haxl resultIVar list)
@@ -921,7 +927,7 @@ dumpCacheAsHaskellFn fnName fnType cacheFn = do
   cache <- env dataCache  -- NB. dataCache, not memoCache.  We ignore memoized
                        -- results when dumping the cache.
   let
-    readIVar (IVar ref) = do
+    readIVar IVar{ivarRef = !ref} = do
       r <- readIORef ref
       case r of
         IVarFull (Ok a _) -> return (Just (Right a))
