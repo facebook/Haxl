@@ -58,6 +58,7 @@ module Haxl.Core.Monad
   , IVarContents(..)
   , newIVar
   , newFullIVar
+  , withCurrentCCS
   , getIVar
   , getIVarWithWrites
   , putIVar
@@ -138,6 +139,7 @@ import Debug.Trace (traceEventIO)
 import qualified Data.Map as Map
 import Data.Text (Text)
 import Data.Typeable
+import Foreign.Ptr (Ptr)
 import GHC.Stack
 import Haxl.Core.CallGraph
 #endif
@@ -408,8 +410,14 @@ lengthJobList (JobCons _ _ _ j) = 1 + lengthJobList j
 
 -- | A synchronisation point.  It either contains a value, or a list
 -- of computations waiting for the value.
+#ifdef PROFILING
+data IVar u w a = IVar
+  { ivarRef :: {-# UNPACK #-} !(IORef (IVarContents u w a))
+  , ivarCCS :: {-# UNPACK #-} !(Ptr CostCentreStack)
+#else
 newtype IVar u w a = IVar
   { ivarRef :: IORef (IVarContents u w a)
+#endif
   }
 
 data IVarContents u w a
@@ -423,19 +431,34 @@ data IVarContents u w a
 newIVar :: IO (IVar u w a)
 newIVar = do
   ivarRef <- newIORef (IVarEmpty JobNil)
+#ifdef PROFILING
+  ivarCCS <- getCurrentCCS ivarRef
+#endif
   return IVar{..}
 
 newFullIVar :: ResultVal a w -> IO (IVar u w a)
 newFullIVar r = do
   ivarRef <- newIORef (IVarFull r)
+#ifdef PROFILING
+  ivarCCS <- getCurrentCCS ivarRef
+#endif
   return IVar{..}
+
+withCurrentCCS :: IVar u w a -> IO (IVar u w a)
+#ifdef PROFILING
+withCurrentCCS ivar = do
+  ccs <- getCurrentCCS ivar
+  return ivar{ivarCCS = ccs}
+#else
+withCurrentCCS = return
+#endif
 
 getIVar :: IVar u w a -> GenHaxl u w a
 getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a _wt) -> return (Done a)
-    IVarFull (ThrowHaxl e _wt) -> return (Throw e)
+    IVarFull (ThrowHaxl e _wt) -> raiseFromIVar i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ -> return (Blocked i (Return i))
 
@@ -445,7 +468,7 @@ getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok f _wt) -> return (Done (f a))
-    IVarFull (ThrowHaxl e _wt) -> return (Throw e)
+    IVarFull (ThrowHaxl e _wt) -> raiseFromIVar i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
       return (Blocked i (Cont (getIVarApply i a)))
@@ -460,7 +483,7 @@ getIVarWithWrites i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
       return (Done a)
     IVarFull (ThrowHaxl e wt) -> do
       mbModifyWLRef wt writeLogsRef
-      return  (Throw e)
+      raiseFromIVar i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
       return (Blocked i (Cont (getIVarWithWrites i)))
@@ -828,6 +851,20 @@ raise e
     stk <- currentCallStack
     return (Throw (toException (HaxlException (Just stk) h)))
   | otherwise
+#endif
+    = return (Throw somex)
+  where
+    somex = toException e
+
+raiseFromIVar :: Exception e => IVar u w a -> e -> IO (Result u w b)
+#ifdef PROFILING
+raiseFromIVar ivar e
+  | Just (HaxlException Nothing h) <- fromException somex = do
+    stk <- ccsToStrings (ivarCCS ivar)
+    return (Throw (toException (HaxlException (Just stk) h)))
+  | otherwise
+#else
+raiseFromIVar _ivar e
 #endif
     = return (Throw somex)
   where

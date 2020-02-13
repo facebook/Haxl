@@ -117,7 +117,9 @@ cachedWithInsert showFn insertFn Env{..} req = do
     Just i@IVar{ivarRef = cr} -> do
       e <- readIORef cr
       case e of
-        IVarEmpty _ -> return (CachedNotFetched i)
+        IVarEmpty _ -> do
+          ivar <- withCurrentCCS i
+          return (CachedNotFetched ivar)
         IVarFull r -> do
           ifTrace flags 3 $ putStrLn $ case r of
             ThrowIO{} -> "Cached error: " ++ showFn req
