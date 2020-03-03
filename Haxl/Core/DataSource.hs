@@ -39,6 +39,7 @@ module Haxl.Core.DataSource
   -- * Default fetch implementations
   , asyncFetch, asyncFetchWithDispatch
   , asyncFetchAcquireRelease
+  , backgroundFetchSeq, backgroundFetchPar
   , backgroundFetchAcquireRelease
   , backgroundFetchAcquireReleaseMVar
   , stubFetch
@@ -50,6 +51,7 @@ module Haxl.Core.DataSource
   ) where
 
 import Control.Exception
+import Control.Monad
 import Data.Hashable
 import Data.Text (Text)
 import Data.Typeable
@@ -58,6 +60,7 @@ import Haxl.Core.Exception
 import Haxl.Core.Flags
 import Haxl.Core.ShowP
 import Haxl.Core.StateStore
+
 
 import GHC.Conc ( newStablePtrPrimMVar
                 , PrimMVar)
@@ -299,6 +302,45 @@ syncFetch withService dispatch enqueue _state _flags _si =
   dispatch service
   sequence_ getResults
 
+backgroundFetchSeq, backgroundFetchPar
+  :: (forall a. request a -> IO (Either SomeException a))
+  -- ^ Run one request, will be run in a background thread
+
+  -> State request
+  -- ^ Currently unused.
+
+  -> Flags
+  -- ^ Currently unused.
+
+  -> u
+  -- ^ Currently unused.
+
+  -> PerformFetch request
+
+backgroundFetchSeq run _state _flags _si =
+  BackgroundFetch $ \requests -> do
+    (cap, _) <- threadCapability =<< myThreadId
+    mask $ \restore -> void $ forkOn cap $ do
+      let rethrow = rethrowFromBg requests
+      restore (mapM_ runOne requests) `catch` rethrow
+      where
+        runOne (BlockedFetch request result) = do
+          res <- run request
+          putResultFromBg result res
+
+backgroundFetchPar run _state _flags _si =
+  BackgroundFetch $ \requests -> do
+    (cap, _) <- threadCapability =<< myThreadId
+    mapM_ (runOneInThread cap) requests
+  where
+    runOneInThread cap request = do
+      mask $ \restore -> void $ forkOn cap $ do
+        let rethrow = rethrowFromBg [request]
+        restore (runOne request) `catch` rethrow
+    runOne (BlockedFetch request result) = do
+      res <- run request
+      putResultFromBg result res
+
 
 {- |
 A version of 'asyncFetch' (actually 'asyncFetchWithDispatch') that
@@ -377,6 +419,25 @@ submitFetch
 submitFetch service fetchFn (BlockedFetch request result)
   = (putResult result =<<) <$> fetchFn service request
 
+putResultFromBg :: ResultVar a -> Either SomeException a -> IO ()
+putResultFromBg result r = do
+  -- See comment on putResultFromChildThread
+  -- We must set the allocation counter to 0 here in case there are more
+  -- results in the batch.
+  -- This is safe as we own this thread, and know that there
+  -- is no allocation limits set.
+  putResultFromChildThread result r
+  setAllocationCounter 0
+
+rethrowFromBg :: [BlockedFetch req] -> SomeException -> IO ()
+rethrowFromBg requests e = do
+  mapM_ (rethrow1bg e) requests
+  rethrowAsyncExceptions e
+  where
+    rethrow1bg e (BlockedFetch _ result) =
+      putResultFromBg result (Left e)
+
+
 backgroundFetchAcquireReleaseMVar
   :: IO service
   -- ^ Resource acquisition for this datasource
@@ -426,26 +487,13 @@ backgroundFetchAcquireReleaseMVar
           -- but for now this seems to work just fine
         let rethrow = rethrowFromBg requests
         _ <- finally
-          (restore $ (process service >> getResults) `catch` rethrow)
+          (restore (process service >> getResults) `catch` rethrow)
           (release service `catch` rethrow)
         return ()
       return ()
   where
-    rethrowFromBg requests (e :: SomeException) = do
-      mapM_ (rethrow1bg e) requests
-      rethrowAsyncExceptions e
-    putFromBg result r = do
-      -- See comment on putResultFromChildThread
-      -- We must set the allocation counter to 0 here in case there are more
-      -- results in the batch.
-      -- This is safe as we own this thread, and know that there
-      -- is no allocation limits set.
-      putResultFromChildThread result r
-      setAllocationCounter 0
-    rethrow1bg e (BlockedFetch _ result) =
-      putFromBg result (Left e)
     submit service (BlockedFetch request result) =
-      (putFromBg result =<<) <$> enqueue service request
+      (putResultFromBg result =<<) <$> enqueue service request
 
 
 {- |

@@ -42,7 +42,12 @@ import Foreign.C.Types ( CInt(..) )
 foreign import ccall safe
   hs_try_putmvar :: CInt -> StablePtr PrimMVar -> IO ()
 
-data FetchImpl = Async | Background | BackgroundMVar
+data FetchImpl =
+  Async
+  | Background
+  | BackgroundMVar
+  | BackgroundSeq
+  | BackgroundPar
 
 data FailAfter a where
   FailAfter :: Int -> FailAfter Int
@@ -74,6 +79,8 @@ instance DataSourceName FailAfter where
 
 instance DataSource u FailAfter where
   fetch state@FailAfterState{..}
+    | BackgroundSeq <- failImpl = backgroundFetchSeq runOne state
+    | BackgroundPar <- failImpl = backgroundFetchPar runOne state
     | Background <- failImpl = backgroundFetchAcquireRelease
         acquire release dispatchbg wait
         submit state
@@ -100,6 +107,13 @@ instance DataSource u FailAfter where
      submit _ (FailAfter t) = do
        threadDelay t
        return (return (Left (toException (FetchError "failed request"))))
+     runOne :: FailAfter a -> IO (Either SomeException a)
+     runOne r = do
+       bracket acquire release $ \s -> do
+         dispatch s
+         getRes <- submit s r
+         wait s
+         getRes
 
 initGlobalState :: FetchImpl -> IO (State FailAfter)
 initGlobalState impl = do
