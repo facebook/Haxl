@@ -123,4 +123,6 @@ tests = TestList
   [ TestLabel "badDataSourceTest async" (go Async)
   , TestLabel "badDataSourceTest background" (go Background)
   , TestLabel "badDataSourceTest backgroundMVar" (go BackgroundMVar)
+  , TestLabel "badDataSourceTest backgroundFetchSeq" (go BackgroundSeq)
+  , TestLabel "badDataSourceTest backgroundFetchPar" (go BackgroundPar)
   ]
