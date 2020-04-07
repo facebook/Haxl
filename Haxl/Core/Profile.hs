@@ -141,10 +141,18 @@ profileCont m env = do
 
 incrementMemoHitCounterFor :: ProfileLabel -> Profile -> Profile
 incrementMemoHitCounterFor lbl p =
-  p { profile = HashMap.adjust incrementMemoHitCounter lbl (profile p) }
+  p { profile =
+      HashMap.insertWith
+        incrementMemoHitCounter
+        lbl
+        (emptyProfileData { profileMemoHits = 1 })
+        (profile p)
+    }
 
-incrementMemoHitCounter :: ProfileData -> ProfileData
-incrementMemoHitCounter pd = pd { profileMemoHits = succ (profileMemoHits pd) }
+incrementMemoHitCounter :: ProfileData -> ProfileData -> ProfileData
+incrementMemoHitCounter _ pd = pd { profileMemoHits =
+                                    succ (profileMemoHits pd)
+                                  }
 
 {-# NOINLINE addProfileFetch #-}
 addProfileFetch
@@ -157,10 +165,18 @@ addProfileFetch env _req = do
       dsName :: Text
       dsName = dataSourceName (Proxy :: Proxy r)
 
-      upd :: ProfileData -> ProfileData
-      upd d = d { profileFetches =
-        HashMap.insertWith (+) dsName 1 (profileFetches d) }
+      upd _ old = old { profileFetches =
+        HashMap.insertWith (+) dsName 1 (profileFetches old) }
 
-    in p { profile = HashMap.adjust upd (profLabel env) (profile p) }
+    in p { profile =
+           HashMap.insertWith
+             upd
+             (profLabel env)
+             (emptyProfileData { profileFetches =
+                                 HashMap.singleton dsName 1
+                               }
+             )
+             (profile p)
+         }
   -- So we do not count the allocation overhead of addProfileFetch
   setAllocationCounter c
