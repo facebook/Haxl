@@ -23,6 +23,7 @@ import Control.Exception (evaluate)
 import Data.Aeson
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
+import Data.Int
 
 import TestUtils
 import WorkDataSource
@@ -131,9 +132,43 @@ threadAlloc batches = do
   -- if we actually do more than 1 batch then the above test is not useful
 
 
+-- Test that we correctly attribute memo work
+memos:: Assertion
+memos = do
+  env <- mkProfilingEnv
+  let
+    memoAllocs = 10000000 :: Int64
+    doWorkMemo = memo (1 :: Int) $ unsafeLiftIO $ do
+      a0 <- getAllocationCounter
+      setAllocationCounter $ a0 - memoAllocs
+      return (5 :: Int)
+  _ <- runHaxl env $ andThen
+    (withLabel "do" doWorkMemo)
+    (withLabel "cached" doWorkMemo)
+  profData <- labelToDataMap <$> readIORef (profRef env)
+  case HashMap.lookup "do" profData of
+    Nothing -> assertFailure "do not in data"
+    Just ProfileData{..} -> do
+      assertEqual "has correct memo id" profileMemos [ProfileMemo 1 False]
+      assertBool "allocs are included in 'do'" (profileAllocs > memoAllocs)
+  case HashMap.lookup "cached" profData of
+    Nothing -> assertFailure "cached not in data"
+    Just ProfileData{..} -> do
+      assertEqual "has correct memo id" profileMemos [ProfileMemo 1 True]
+      assertBool "allocs are *not* included in 'cached'" (profileAllocs < 50000)
+  (Stats memoStats) <- readIORef (statsRef env)
+  assertEqual "exactly 1 memo/fetch" 1 (length memoStats)
+  let memoStat = head memoStats
+  putStrLn $ "memoStat=" ++ show memoStat
+  assertEqual "correct call id" 1 (memoStatId memoStat)
+  assertBool "allocs are big enough" $ memoSpace memoStat >= memoAllocs
+  assertBool "allocs are not too big" $ memoSpace memoStat < memoAllocs + 100000
+
+
 tests = TestList
   [ TestLabel "collectsdata" $ TestCase collectsdata
   , TestLabel "exceptions" $ TestCase exceptions
   , TestLabel "threads" $ TestCase (threadAlloc 1)
   , TestLabel "threads with batch" $ TestCase (threadAlloc 50)
+  , TestLabel "memos" $ TestCase memos
   ]

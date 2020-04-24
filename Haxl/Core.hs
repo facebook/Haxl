@@ -44,6 +44,7 @@ module Haxl.Core (
     -- ** Statistics
   , Stats(..)
   , FetchStats(..)
+  , CallId
   , Microseconds
   , Timestamp
   , emptyStats
@@ -52,6 +53,8 @@ module Haxl.Core (
   , ppFetchStats
   , aggregateFetchBatches
   , Profile(..)
+  , ProfileMemo(..)
+  , ProfileFetch(..)
   , emptyProfile
   , ProfileLabel
   , ProfileKey
@@ -59,7 +62,6 @@ module Haxl.Core (
   , emptyProfileData
   , AllocCount
   , LabelHitCount
-  , MemoHitCount
 
     -- ** Tracing flags
   , Flags(..)

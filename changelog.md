@@ -1,6 +1,6 @@
 # Changes in version <next>
   * Added fetchBatchId to FetchStats
-  * Profiling now tracks full stacks
+  * Profiling now tracks full stacks and links each label to memos/fetches
 
 # Changes in version 2.3.0.0
   * Removed `FutureFetch`

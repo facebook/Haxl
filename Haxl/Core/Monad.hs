@@ -74,12 +74,14 @@ module Haxl.Core.Monad
 
     -- * Env
   , Env(..)
+  , DataCacheItem(..)
   , Caches
   , caches
   , initEnvWithData
   , initEnv
   , emptyEnv
   , env, withEnv
+  , nextCallId
   , speculate
   , imperative
 
@@ -130,6 +132,7 @@ import Control.Monad
 import qualified Control.Exception as Exception
 import Data.IORef
 import Data.Int
+import Data.Either (rights)
 import GHC.Exts (IsString(..))
 import Text.PrettyPrint hiding ((<>))
 import Text.Printf
@@ -151,12 +154,18 @@ import Haxl.Core.CallGraph
 -- The environment
 
 -- | The data we carry around in the Haxl monad.
+
+data DataCacheItem u w a = DataCacheItem (IVar u w a) {-# UNPACK #-} !CallId
+
 data Env u w = Env
-  { dataCache     :: {-# UNPACK #-} !(DataCache (IVar u w))
+  { dataCache     :: {-# UNPACK #-} !(DataCache (DataCacheItem u w))
       -- ^ cached data fetches
 
-  , memoCache      :: {-# UNPACK #-} !(DataCache (IVar u w))
+  , memoCache      :: {-# UNPACK #-} !(DataCache (DataCacheItem u w))
       -- ^ memoized computations
+
+  , memoKey    :: {-# UNPACK #-} !CallId
+      -- ^ current running memo key
 
   , flags        :: !Flags
       -- conservatively not unpacking, because this is passed
@@ -172,8 +181,11 @@ data Env u w = Env
      -- ^ keeps track of a Unique ID for each batch dispatched with stats
      -- enabled, for aggregating after.
 
+  , callIdRef :: {-# UNPACK #-} !(IORef CallId)
+     -- ^ keeps track of a Unique ID for each fetch/memo.
+
   , profCurrent    :: ProfileCurrent
-      -- ^ current profiling label, see 'withLabel'
+     -- ^ current profiling label, see 'withLabel'
 
   , profRef      :: {-# UNPACK #-} !(IORef Profile)
       -- ^ profiling data, collected according to the 'report' level in 'flags'.
@@ -230,15 +242,28 @@ data ProfileCurrent = ProfileCurrent
   , profCurrentLabel :: {-# UNPACK #-} !ProfileLabel
   }
 
-type Caches u w = (DataCache (IVar u w), DataCache (IVar u w))
+type Caches u w = (DataCache (DataCacheItem u w), DataCache (DataCacheItem u w))
 
 caches :: Env u w -> Caches u w
 caches env = (dataCache env, memoCache env)
+
+getMaxCallId :: DataCache (DataCacheItem u w) -> IO (Maybe Int)
+getMaxCallId c = do
+  callIds  <- rights . concatMap snd <$>
+              DataCache.readCache c (\(DataCacheItem _ i) -> return i)
+  case callIds of
+    [] -> return Nothing
+    vals -> return $ Just (maximum vals)
+
 
 -- | Initialize an environment with a 'StateStore', an input map, a
 -- preexisting 'DataCache', and a seed for the random number generator.
 initEnvWithData :: StateStore -> u -> Caches u w -> IO (Env u w)
 initEnvWithData states e (dcache, mcache) = do
+  newCid <- max <$>
+    (maybe 0 ((+) 1) <$> getMaxCallId dcache) <*>
+    (maybe 0 ((+) 1) <$> getMaxCallId mcache)
+  ciref<- newIORef newCid
   sref <- newIORef emptyStats
   sbref <- newIORef 0
   pref <- newIORef emptyProfile
@@ -251,12 +276,14 @@ initEnvWithData states e (dcache, mcache) = do
   return Env
     { dataCache = dcache
     , memoCache = mcache
+    , memoKey = (-1)
     , flags = defaultFlags
     , userEnv = e
     , states = states
     , statsRef = sref
     , statsBatchIdRef = sbref
     , profCurrent = ProfileCurrent 0 "MAIN"
+    , callIdRef = ciref
     , profRef = pref
     , reqStoreRef = rs
     , runQueueRef = rq
@@ -814,6 +841,9 @@ withEnv newEnv (GenHaxl m) = GenHaxl $ \_env -> do
     Blocked ivar k ->
       return (Blocked ivar (Cont (withEnv newEnv (toHaxl k))))
 
+nextCallId :: Env u w -> IO CallId
+nextCallId env = atomicModifyIORef' (callIdRef env) $ \x -> (x+1,x+1)
+
 #ifdef PROFILING
 -- -----------------------------------------------------------------------------
 -- CallGraph recording
@@ -972,7 +1002,7 @@ dumpCacheAsHaskellFn fnName fnType cacheFn = do
   cache <- env dataCache  -- NB. dataCache, not memoCache.  We ignore memoized
                        -- results when dumping the cache.
   let
-    readIVar IVar{ivarRef = !ref} = do
+    readIVar (DataCacheItem IVar{ivarRef = !ref} _) = do
       r <- readIORef ref
       case r of
         IVarFull (Ok a _) -> return (Just (Right a))

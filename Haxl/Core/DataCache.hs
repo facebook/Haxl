@@ -22,6 +22,7 @@ module Haxl.Core.DataCache
   , insertWithShow
   , lookup
   , showCache
+  , readCache
   ) where
 
 import Prelude hiding (lookup)
@@ -166,3 +167,23 @@ showCache (DataCache cache) readRes = H.foldM goSubCache [] cache
             Just (Left e) -> (showReq request, Left e) : res
             Just (Right result) ->
               (showReq request, Right (showRes result)) : res
+
+-- | Dumps the contents of the cache responses to list
+readCache
+  :: forall res ret
+  .  DataCache res
+  -> (forall a . res a -> IO ret)
+  -> IO [(TypeRep, [Either SomeException ret])]
+readCache (DataCache cache) readRes = H.foldM goSubCache [] cache
+  where
+    goSubCache
+      :: [(TypeRep, [Either SomeException ret])]
+      -> (TypeRep, SubCache res)
+      -> IO [(TypeRep, [Either SomeException ret])]
+    goSubCache res (ty, SubCache _showReq _showRes hm) = do
+      subCacheResult <- H.foldM go [] hm
+      return $ (ty, subCacheResult):res
+      where
+        go res (_request, rvar) = do
+          r <- try $ readRes rvar
+          return $ r : res

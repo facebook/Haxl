@@ -74,15 +74,18 @@ data CacheResult u w a
   = Uncached
        (ResultVar a)
        {-# UNPACK #-} !(IVar u w a)
+       {-# UNPACK #-} !CallId
 
   -- | The request has been seen before, but its result has not yet been
   -- fetched.
   | CachedNotFetched
       {-# UNPACK #-} !(IVar u w a)
+       {-# UNPACK #-} !CallId
 
   -- | The request has been seen before, and its result has already been
   -- fetched.
   | Cached (ResultVal a w)
+           {-# UNPACK #-} !CallId
 
 
 -- | Show functions for request and its result.
@@ -101,31 +104,32 @@ cachedWithInsert
   :: forall r a u w.
      (DataSource u r, Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u w a -> DataCache (IVar u w) -> IO ())
+  -> (r a -> DataCacheItem u w a -> DataCache (DataCacheItem u w) -> IO ())
   -> Env u w -> r a -> IO (CacheResult u w a)
-cachedWithInsert showFn insertFn Env{..} req = do
+cachedWithInsert showFn insertFn env@Env{..} req = do
   let
     doFetch = do
       ivar <- newIVar
+      k <- nextCallId env
       let !rvar = stdResultVar ivar completions submittedReqsRef flags
             (Proxy :: Proxy r)
-      insertFn req ivar dataCache
-      return (Uncached rvar ivar)
+      insertFn req (DataCacheItem ivar k) dataCache
+      return (Uncached rvar ivar k)
   mbRes <- DataCache.lookup req dataCache
   case mbRes of
     Nothing -> doFetch
-    Just i@IVar{ivarRef = cr} -> do
+    Just (DataCacheItem i@IVar{ivarRef = cr} k) -> do
       e <- readIORef cr
       case e of
         IVarEmpty _ -> do
           ivar <- withCurrentCCS i
-          return (CachedNotFetched ivar)
+          return (CachedNotFetched ivar k)
         IVarFull r -> do
           ifTrace flags 3 $ putStrLn $ case r of
             ThrowIO{} -> "Cached error: " ++ showFn req
             ThrowHaxl{} -> "Cached error: " ++ showFn req
             Ok{} -> "Cached request: " ++ showFn req
-          return (Cached r)
+          return (Cached r k)
 
 
 -- | Make a ResultVar with the standard function for sending a CompletionReq
@@ -160,15 +164,15 @@ stdResultVar ivar completions ref flags p =
 
 -- | Record the call stack for a data fetch in the Stats.  Only useful
 -- when profiling.
-logFetch :: Env u w -> (r a -> String) -> r a -> IO ()
+logFetch :: Env u w -> (r a -> String) -> r a -> CallId -> IO ()
 #ifdef PROFILING
-logFetch env showFn req = do
+logFetch env showFn req fid = do
   ifReport (flags env) 5 $ do
     stack <- currentCallStack
     modifyIORef' (statsRef env) $ \(Stats s) ->
-      Stats (FetchCall (showFn req) stack : s)
+      Stats (FetchCall (showFn req) stack fid : s)
 #else
-logFetch _ _ _ = return ()
+logFetch _ _ _ _ = return ()
 #endif
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
@@ -190,38 +194,44 @@ dataFetchWithInsert
   :: forall u w r a
    . (DataSource u r, Eq (r a), Hashable (r a), Typeable (r a))
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u w a -> DataCache (IVar u w) -> IO ())
+  -> (r a -> DataCacheItem u w a -> DataCache (DataCacheItem u w) -> IO ())
   -> r a
   -> GenHaxl u w a
 dataFetchWithInsert showFn insertFn req =
   GenHaxl $ \env@Env{..} -> do
   -- First, check the cache
   res <- cachedWithInsert showFn insertFn env req
-  ifProfiling flags $ addProfileFetch env req
   case res of
     -- This request has not been seen before
-    Uncached rvar ivar -> do
-      logFetch env showFn req
+    Uncached rvar ivar fid -> do
+      logFetch env showFn req fid
+      ifProfiling flags $ addProfileFetch env req fid False
       --
       -- Check whether the data source wants to submit requests
       -- eagerly, or batch them up.
       --
+      let blockedFetch = BlockedFetch req rvar
+      let blockedFetchI = BlockedFetchInternal fid
       case schedulerHint userEnv :: SchedulerHint r of
         SubmitImmediately ->
-          performFetches env [BlockedFetches [BlockedFetch req rvar]]
+          performFetches env [BlockedFetches [blockedFetch] [blockedFetchI]]
         TryToBatch ->
           -- add the request to the RequestStore and continue
           modifyIORef' reqStoreRef $ \bs ->
-            addRequest (BlockedFetch req rvar) bs
+            addRequest blockedFetch blockedFetchI bs
       --
       return $ Blocked ivar (Return ivar)
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
-    CachedNotFetched ivar -> return $ Blocked ivar (Return ivar)
+    CachedNotFetched ivar fid -> do
+      ifProfiling flags $ addProfileFetch env req fid True
+      return $ Blocked ivar (Return ivar)
 
     -- Cached: either a result, or an exception
-    Cached r -> done r
+    Cached r fid -> do
+      ifProfiling flags $ addProfileFetch env req fid True
+      done r
 
 -- | A data request that is not cached.  This is not what you want for
 -- normal read requests, because then multiple identical requests may
@@ -246,11 +256,12 @@ uncachedRequest req = do
   subRef <- env submittedReqsRef
   if recording flg /= 0
     then dataFetch req
-    else GenHaxl $ \Env{..} -> do
+    else GenHaxl $ \e@Env{..} -> do
       ivar <- newIVar
+      k <- nextCallId e
       let !rvar = stdResultVar ivar completions subRef flg (Proxy :: Proxy r)
       modifyIORef' reqStoreRef $ \bs ->
-        addRequest (BlockedFetch req rvar) bs
+        addRequest (BlockedFetch req rvar) (BlockedFetchInternal k) bs
       return $ Blocked ivar (Return ivar)
 
 
@@ -275,9 +286,11 @@ cacheResultWithShow (showReq, showRes) = cacheResultWithInsert showReq
 cacheResultWithInsert
   :: Typeable (r a)
   => (r a -> String)    -- See Note [showFn]
-  -> (r a -> IVar u w a -> DataCache (IVar u w) -> IO ()) -> r a
-  -> IO a -> GenHaxl u w a
-cacheResultWithInsert showFn insertFn req val = GenHaxl $ \Env{..} -> do
+  -> (r a -> DataCacheItem u w a -> DataCache (DataCacheItem u w) -> IO ())
+  -> r a
+  -> IO a
+  -> GenHaxl u w a
+cacheResultWithInsert showFn insertFn req val = GenHaxl $ \e@Env{..} -> do
   mbRes <- DataCache.lookup req dataCache
   case mbRes of
     Nothing -> do
@@ -287,9 +300,10 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \Env{..} -> do
         _ -> return ()
       let result = eitherToResultThrowIO eitherResult
       ivar <- newFullIVar result
-      insertFn req ivar dataCache
+      k <- nextCallId e
+      insertFn req (DataCacheItem ivar k) dataCache
       done result
-    Just IVar{ivarRef = cr} -> do
+    Just (DataCacheItem IVar{ivarRef = cr} _) -> do
       e <- readIORef cr
       case e of
         IVarEmpty _ -> corruptCache
@@ -313,12 +327,13 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \Env{..} -> do
 --
 cacheRequest
   :: Request req a => req a -> Either SomeException a -> GenHaxl u w ()
-cacheRequest request result = GenHaxl $ \Env{..} -> do
+cacheRequest request result = GenHaxl $ \e@Env{..} -> do
   mbRes <- DataCache.lookup request dataCache
   case mbRes of
     Nothing -> do
       cr <- newFullIVar (eitherToResult result)
-      DataCache.insert request cr dataCache
+      k <- nextCallId e
+      DataCache.insert request (DataCacheItem cr k) dataCache
       return (Done ())
 
     -- It is an error if the request is already in the cache.
@@ -334,9 +349,10 @@ cacheRequest request result = GenHaxl $ \Env{..} -> do
 -- Useful e.g. for unit tests
 dupableCacheRequest
   :: Request req a => req a -> Either SomeException a -> GenHaxl u w ()
-dupableCacheRequest request result = GenHaxl $ \Env{..} -> do
+dupableCacheRequest request result = GenHaxl $ \e@Env{..} -> do
   cr <- newFullIVar (eitherToResult result)
-  DataCache.insert request cr dataCache
+  k <- nextCallId e
+  DataCache.insert request (DataCacheItem cr k) dataCache
   return (Done ())
 
 performRequestStore
@@ -353,11 +369,11 @@ performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
   t0 <- getTimestamp
 
   ifTrace f 3 $
-    forM_ jobs $ \(BlockedFetches reqs) ->
+    forM_ jobs $ \(BlockedFetches reqs _) ->
       forM_ reqs $ \(BlockedFetch r _) -> putStrLn (showp r)
 
   let
-    applyFetch i (BlockedFetches (reqs :: [BlockedFetch r])) =
+    applyFetch i bfs@(BlockedFetches (reqs :: [BlockedFetch r]) _) =
       case stateGet (states env) of
         Nothing ->
           return (FetchToDo reqs (SyncFetch (mapM_ (setError e))))
@@ -367,10 +383,9 @@ performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
                   <> ": "
                   <> Text.pack (showp req)
         Just state ->
-          return
-            $ FetchToDo reqs
+          return $ FetchToDo reqs
             $ (if report f >= 2
-                then wrapFetchInStats sref sbref dsName (length reqs)
+                then wrapFetchInStats sref sbref dsName (length reqs) bfs
                 else id)
             $ wrapFetchInTrace i (length reqs) dsName
             $ wrapFetchInCatch reqs
@@ -430,14 +445,21 @@ wrapFetchInCatch reqs fetch =
 
 
 wrapFetchInStats
-  :: IORef Stats
+  :: forall u req .
+     IORef Stats
   -> IORef Int
   -> Text
   -> Int
+  -> BlockedFetches u
   -> PerformFetch req
   -> PerformFetch req
-
-wrapFetchInStats !statsRef !batchIdRef dataSource batchSize perform = do
+wrapFetchInStats
+  !statsRef
+  !batchIdRef
+  dataSource
+  batchSize
+  (BlockedFetches _reqs reqsI)
+  perform = do
   case perform of
     SyncFetch f ->
       SyncFetch $ \reqs -> do
@@ -445,7 +467,7 @@ wrapFetchInStats !statsRef !batchIdRef dataSource batchSize perform = do
         fail_ref <- newIORef 0
         (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount fail_ref) reqs))
         failures <- readIORef fail_ref
-        updateFetchStats bid t0 t alloc batchSize failures
+        updateFetchStats bid allFids t0 t alloc batchSize failures
     AsyncFetch f -> do
       AsyncFetch $ \reqs inner -> do
         bid <- newBatchId
@@ -458,14 +480,15 @@ wrapFetchInStats !statsRef !batchIdRef dataSource batchSize perform = do
         (t0, totalTime, totalAlloc, _) <- statsForIO (f reqs' inner')
         (innerTime, innerAlloc) <- readIORef inner_r
         failures <- readIORef fail_ref
-        updateFetchStats bid t0 (totalTime - innerTime)
+        updateFetchStats bid allFids t0 (totalTime - innerTime)
           (totalAlloc - innerAlloc) batchSize failures
     BackgroundFetch io -> do
       BackgroundFetch $ \reqs -> do
         bid <- newBatchId
         startTime <- getTimestamp
-        io (map (addTimer bid startTime) reqs)
+        io (zipWith (addTimer bid startTime) reqs reqsI)
   where
+    allFids = map (\(BlockedFetchInternal k) -> k) reqsI
     newBatchId = atomicModifyIORef' batchIdRef $ \x -> (x+1,x+1)
     statsForIO io = do
       prevAlloc <- getAllocationCounter
@@ -473,32 +496,44 @@ wrapFetchInStats !statsRef !batchIdRef dataSource batchSize perform = do
       postAlloc <- getAllocationCounter
       return (t0,t, fromIntegral $ prevAlloc - postAlloc, a)
 
-    addTimer bid t0 (BlockedFetch req (ResultVar fn)) =
-      BlockedFetch req $ ResultVar $ \result isChildThread -> do
-        t1 <- getTimestamp
-        -- We cannot measure allocation easily for BackgroundFetch. Here we
-        -- just attribute all allocation to the last `putResultFromChildThread`
-        -- and use 0 for the others. While the individual allocations may not
-        -- be correct, the total sum and amortized allocation are still
-        -- meaningful.
-        -- see Note [tracking allocation in child threads]
-        allocs <- if isChildThread then getAllocationCounter else return 0
-        updateFetchStats bid t0 (t1 - t0)
-          (negate allocs)
-          1 -- batch size: we don't know if this is a batch or not
-          (if isLeft result then 1 else 0) -- failures
-        fn result isChildThread
+    addTimer
+      bid
+      t0
+      (BlockedFetch req (ResultVar fn))
+      (BlockedFetchInternal fid) =
+        BlockedFetch req $ ResultVar $ \result isChildThread -> do
+          t1 <- getTimestamp
+          -- We cannot measure allocation easily for BackgroundFetch. Here we
+          -- just attribute all allocation to the last
+          -- `putResultFromChildThread` and use 0 for the others.
+          -- While the individual allocations may not be correct,
+          -- the total sum and amortized allocation are still meaningful.
+          -- see Note [tracking allocation in child threads]
+          allocs <- if isChildThread then getAllocationCounter else return 0
+          updateFetchStats bid [fid] t0 (t1 - t0)
+            (negate allocs)
+            1 -- batch size: we don't know if this is a batch or not
+            (if isLeft result then 1 else 0) -- failures
+          fn result isChildThread
 
     updateFetchStats
-      :: Int -> Timestamp -> Microseconds -> Int64 -> Int -> Int -> IO ()
-    updateFetchStats bid start time space batch failures = do
+      :: Int
+      -> [CallId]
+      -> Timestamp
+      -> Microseconds
+      -> Int64
+      -> Int
+      -> Int
+      -> IO ()
+    updateFetchStats bid fids start time space batch failures = do
       let this = FetchStats { fetchDataSource = dataSource
                             , fetchBatchSize = batch
                             , fetchStart = start
                             , fetchDuration = time
                             , fetchSpace = space
                             , fetchFailures = failures
-                            , fetchBatchId = bid }
+                            , fetchBatchId = bid
+                            , fetchIds = fids }
       atomicModifyIORef' statsRef $ \(Stats fs) -> (Stats (this : fs), ())
 
     addFailureCount :: IORef Int -> BlockedFetch r -> BlockedFetch r
