@@ -118,6 +118,7 @@ import Haxl.Core.RequestStore as RequestStore
 import Haxl.Core.DataCache as DataCache
 import Haxl.Core.Util (trace_)
 
+import Control.Applicative (liftA2)
 import Control.Arrow (left)
 import Control.Concurrent.STM
 import qualified Data.Text as Text
@@ -742,6 +743,9 @@ instance Applicative (GenHaxl u w) where
           Blocked ivar2 acont -> trace_ "Blocked/Blocked" $
             blockedBlocked env ivar1 fcont ivar2 acont
              -- Note [Blocked/Blocked]
+
+instance Semigroup a => Semigroup (GenHaxl u w a) where
+  (<>) = liftA2 (<>)
 
 blockedBlocked
   :: Env u w
