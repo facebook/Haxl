@@ -74,8 +74,9 @@ cachedComputation
 
 cachedComputation req haxl = GenHaxl $ \env@Env{..} -> do
   ifProfiling flags $
-     modifyIORef' profRef (incrementMemoHitCounterFor
-     profLabel)
+    modifyIORef'
+      profRef
+      (incrementMemoHitCounterFor (profCurrentKey profCurrent))
   mbRes <- DataCache.lookup req memoCache
   case mbRes of
     Just ivar -> unHaxl (getIVarWithWrites ivar) env
@@ -101,7 +102,9 @@ preCacheComputation
   => req a -> GenHaxl u w a -> GenHaxl u w a
 preCacheComputation req haxl = GenHaxl $ \env@Env{..} -> do
   ifProfiling flags $
-     modifyIORef' profRef (incrementMemoHitCounterFor profLabel)
+    modifyIORef'
+      profRef
+      (incrementMemoHitCounterFor (profCurrentKey profCurrent))
   mbRes <- DataCache.lookup req memoCache
   case mbRes of
     Just _ -> return $ Throw $ toException $ InvalidParameter

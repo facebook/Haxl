@@ -83,6 +83,9 @@ module Haxl.Core.Monad
   , speculate
   , imperative
 
+    -- * Profiling
+  , ProfileCurrent(..)
+
     -- * JobList
   , JobList(..)
   , appendJobList
@@ -169,7 +172,7 @@ data Env u w = Env
      -- ^ keeps track of a Unique ID for each batch dispatched with stats
      -- enabled, for aggregating after.
 
-  , profLabel    :: ProfileLabel
+  , profCurrent    :: ProfileCurrent
       -- ^ current profiling label, see 'withLabel'
 
   , profRef      :: {-# UNPACK #-} !(IORef Profile)
@@ -222,6 +225,11 @@ data Env u w = Env
 #endif
   }
 
+data ProfileCurrent = ProfileCurrent
+  { profCurrentKey ::  {-# UNPACK #-} !ProfileKey
+  , profCurrentLabel :: {-# UNPACK #-} !ProfileLabel
+  }
+
 type Caches u w = (DataCache (IVar u w), DataCache (IVar u w))
 
 caches :: Env u w -> Caches u w
@@ -248,7 +256,7 @@ initEnvWithData states e (dcache, mcache) = do
     , states = states
     , statsRef = sref
     , statsBatchIdRef = sbref
-    , profLabel = "MAIN"
+    , profCurrent = ProfileCurrent 0 "MAIN"
     , profRef = pref
     , reqStoreRef = rs
     , runQueueRef = rq

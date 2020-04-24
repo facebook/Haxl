@@ -6,6 +6,7 @@
 
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module ProfileTests where
 
@@ -22,7 +23,6 @@ import Control.Exception (evaluate)
 import Data.Aeson
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
 
 import TestUtils
 import WorkDataSource
@@ -30,6 +30,16 @@ import WorkDataSource
 mkProfilingEnv = do
   env <- makeTestEnv False
   return env { flags = (flags env) { report = 4 } }
+
+-- expects only one label to be shown
+labelToDataMap :: Profile -> HashMap.HashMap ProfileLabel ProfileData
+labelToDataMap Profile{..} = HashMap.fromList hashKeys
+  where
+    labelKeys = HashMap.fromList [
+      (k, l) | ((l, _), k) <- HashMap.toList profileTree]
+    hashKeys = [ (l, v)
+      | (k, v) <- HashMap.toList profile
+      , Just l <- [HashMap.lookup k labelKeys]]
 
 collectsdata :: Assertion
 collectsdata = do
@@ -42,18 +52,32 @@ collectsdata = do
               case fromJSON <$> HashMap.lookup "A" u of
                 Just (Success n) | sum [n .. 1000::Integer] > 0 -> return 5
                 _otherwise -> return (4::Int)
-  profData <- profile <$> readIORef (profRef e)
+  profCopy <- readIORef (profRef e)
+  let
+    profData = profile profCopy
+    labelKeys = HashMap.fromList [
+      (l, k) | ((l, _), k) <- HashMap.toList (profileTree profCopy)]
+    getData k = do
+      k2 <- HashMap.lookup k labelKeys
+      HashMap.lookup k2 profData
   assertEqual "has data" 3 $ HashMap.size profData
   assertBool "foo allocates" $
-    case profileAllocs <$> HashMap.lookup "foo" profData of
+    case profileAllocs <$> getData "foo" of
       Just x -> x > 10000
       Nothing -> False
   assertBool "bar does not allocate (much)" $
-    case profileAllocs <$> HashMap.lookup "bar" profData of
+    case profileAllocs <$> getData "bar" of
       Just n -> n < 5000  -- getAllocationCounter can be off by +/- 4K
       _otherwise -> False
-  assertEqual "foo's parent" (Just ["bar"]) $
-    HashSet.toList . profileDeps <$> HashMap.lookup "foo" profData
+  let fooParents = case HashMap.lookup "foo" labelKeys of
+        Nothing -> []
+        Just kfoo ->
+          [ kparent
+          | ((_, kparent), k) <- HashMap.toList (profileTree profCopy)
+          , k == kfoo]
+  assertEqual "foo's parent" 1 (length fooParents)
+  assertEqual "foo's parent is bar" (Just (head fooParents)) $
+    HashMap.lookup ("bar", 0) (profileTree profCopy)
 
 exceptions :: Assertion
 exceptions = do
@@ -62,7 +86,7 @@ exceptions = do
           withLabel "outer" $
             tryToHaxlException $ withLabel "inner" $
               unsafeLiftIO $ evaluate $ force (error "pure exception" :: Int)
-  profData <- profile <$> readIORef (profRef env)
+  profData <- labelToDataMap <$> readIORef (profRef env)
   assertBool "inner label not added" $
     not $ HashMap.member "inner" profData
 
@@ -71,7 +95,7 @@ exceptions = do
           withLabel "outer" $
             tryToHaxlException $ withLabel "inner" $
               throw $ NotFound "haxl exception"
-  profData <- profile <$> readIORef (profRef env2)
+  profData <- labelToDataMap <$> readIORef (profRef env2)
   assertBool "inner label added" $
     HashMap.member "inner" profData
 
