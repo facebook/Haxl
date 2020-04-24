@@ -164,7 +164,8 @@ executable monadbench
     base,
     haxl,
     hashable,
-    time
+    time,
+    optparse-applicative
   main-is:
     MonadBench.hs
   other-modules:
