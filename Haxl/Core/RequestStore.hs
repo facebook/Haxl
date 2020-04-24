@@ -21,6 +21,7 @@
 --
 module Haxl.Core.RequestStore
   ( BlockedFetches(..)
+  , BlockedFetchInternal(..)
   , RequestStore
   , isEmpty
   , noRequests
@@ -35,6 +36,7 @@ module Haxl.Core.RequestStore
   ) where
 
 import Haxl.Core.DataSource
+import Haxl.Core.Stats
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy
@@ -48,9 +50,12 @@ newtype RequestStore u = RequestStore (Map TypeRep (BlockedFetches u))
   -- is dynamically-typed.  It maps the TypeRep of the request to the
   -- 'BlockedFetches' for that 'DataSource'.
 
+newtype BlockedFetchInternal = BlockedFetchInternal CallId
+
 -- | A batch of 'BlockedFetch' objects for a single 'DataSource'
 data BlockedFetches u =
-  forall r. (DataSource u r) => BlockedFetches [BlockedFetch r]
+  forall r. (DataSource u r) =>
+        BlockedFetches [BlockedFetch r] [BlockedFetchInternal]
 
 isEmpty :: RequestStore u -> Bool
 isEmpty (RequestStore m) = Map.null m
@@ -62,13 +67,13 @@ noRequests = RequestStore Map.empty
 -- | Adds a 'BlockedFetch' to a 'RequestStore'.
 addRequest
   :: forall u r. (DataSource u r)
-  => BlockedFetch r -> RequestStore u -> RequestStore u
-addRequest bf (RequestStore m) =
-  RequestStore $ Map.insertWith combine ty (BlockedFetches [bf]) m
+  => BlockedFetch r -> BlockedFetchInternal -> RequestStore u -> RequestStore u
+addRequest bf bfi (RequestStore m) =
+  RequestStore $ Map.insertWith combine ty (BlockedFetches [bf] [bfi]) m
  where
   combine :: BlockedFetches u -> BlockedFetches u -> BlockedFetches u
-  combine _ (BlockedFetches bfs)
-    | typeOf1 (getR bfs) == ty = BlockedFetches (unsafeCoerce bf:bfs)
+  combine _ (BlockedFetches bfs bfis)
+    | typeOf1 (getR bfs) == ty = BlockedFetches (unsafeCoerce bf:bfs) (bfi:bfis)
     | otherwise                = error "RequestStore.insert"
          -- the dynamic type check here should be unnecessary, but if
          -- there are bugs in `Typeable` or `Map` then we'll get an

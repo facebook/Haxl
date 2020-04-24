@@ -45,6 +45,7 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.Text (Text)
 import Data.Typeable
 import Data.Hashable
+import Data.Int
 import Data.Word
 
 import GHC.Prim (Addr#)
@@ -53,6 +54,7 @@ import Haxl.Core.Exception
 import Haxl.Core.DataCache as DataCache
 import Haxl.Core.Flags
 import Haxl.Core.Monad
+import Haxl.Core.Stats
 import Haxl.Core.Profile
 import Haxl.Core.Util (trace_)
 
@@ -73,17 +75,18 @@ cachedComputation
    => req a -> GenHaxl u w a -> GenHaxl u w a
 
 cachedComputation req haxl = GenHaxl $ \env@Env{..} -> do
-  ifProfiling flags $
-    modifyIORef'
-      profRef
-      (incrementMemoHitCounterFor (profCurrentKey profCurrent))
   mbRes <- DataCache.lookup req memoCache
   case mbRes of
-    Just ivar -> unHaxl (getIVarWithWrites ivar) env
+    Just (DataCacheItem ivar k) -> do
+      ifProfiling flags $ do
+        incrementMemoHitCounterFor env k True
+      unHaxl (getIVarWithWrites ivar) env
     Nothing -> do
       ivar <- newIVar
-      DataCache.insertNotShowable req ivar memoCache
-      unHaxl (execMemoNow haxl ivar) env
+      k <- nextCallId env
+      -- no need to incremenetMemoHitCounter as execMemo will do it
+      DataCache.insertNotShowable req (DataCacheItem ivar k) memoCache
+      execMemoNowProfiled env haxl ivar k
 
 
 -- | Like 'cachedComputation', but fails if the cache is already
@@ -101,18 +104,15 @@ preCacheComputation
      , Typeable (req a))
   => req a -> GenHaxl u w a -> GenHaxl u w a
 preCacheComputation req haxl = GenHaxl $ \env@Env{..} -> do
-  ifProfiling flags $
-    modifyIORef'
-      profRef
-      (incrementMemoHitCounterFor (profCurrentKey profCurrent))
   mbRes <- DataCache.lookup req memoCache
   case mbRes of
     Just _ -> return $ Throw $ toException $ InvalidParameter
       "preCacheComputation: key is already cached"
     Nothing -> do
       ivar <- newIVar
-      DataCache.insertNotShowable req ivar memoCache
-      unHaxl (execMemoNow haxl ivar) env
+      k <- nextCallId env
+      DataCache.insertNotShowable req (DataCacheItem ivar k) memoCache
+      execMemoNowProfiled env haxl ivar k
 
 -- -----------------------------------------------------------------------------
 -- Memoization
@@ -204,13 +204,43 @@ runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
     MemoReady cont -> trace_ "MemoReady" $ do
       ivar <- newIVar
       writeIORef memoRef (MemoRun ivar)
-      unHaxl (execMemoNow cont ivar) env
+      execMemoNow env cont ivar
     -- The memo has already been run, get (or wait for) for the result
     MemoRun ivar -> trace_ "MemoRun" $ unHaxl (getIVarWithWrites ivar) env
 
+execMemoNowProfiled
+  :: Env u w
+  -> GenHaxl u w a
+  -> IVar u w a
+  -> CallId
+  -> IO (Result u w a)
+execMemoNowProfiled envOuter cont ivar cid = if report (flags envOuter) < 4
+  then execMemoNow envOuter cont ivar
+  else do
+    incrementMemoHitCounterFor envOuter cid False
+    unHaxl
+      (collectMemoData 0 $ GenHaxl $ \e -> execMemoNow e cont ivar)
+      envOuter
+  where
+    addStats :: Env u w -> Int64 -> IO ()
+    addStats env acc = modifyIORef' (statsRef env) $ \(Stats s) ->
+      Stats (MemoCall cid acc : s)
+    collectMemoData :: Int64 -> GenHaxl u w a -> GenHaxl u w a
+    collectMemoData acc f = GenHaxl $ \env -> do
+      a0 <- getAllocationCounter
+      r <- unHaxl f env{memoKey=cid}
+      a1 <- getAllocationCounter
+      let newTotal = acc + (a0 - a1)
+      ret <- case r of
+        Done a -> do addStats env newTotal; return (Done a)
+        Throw e -> do addStats env newTotal; return (Throw e)
+        Blocked ivar k ->
+          return (Blocked ivar (Cont (collectMemoData newTotal (toHaxl k))))
+      setAllocationCounter a1
+      return ret
 
-execMemoNow :: GenHaxl u w a -> IVar u w a -> GenHaxl u w a
-execMemoNow cont ivar = GenHaxl $ \env -> do
+execMemoNow :: Env u w -> GenHaxl u w a -> IVar u w a -> IO (Result u w a)
+execMemoNow env cont ivar = do
   wlogs <- newIORef NilWrites
   let
     !ienv = imperative env { writeLogsRef = wlogs }

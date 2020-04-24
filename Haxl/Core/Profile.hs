@@ -27,7 +27,6 @@ import Data.Hashable
 #if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
 #endif
-import Data.Text (Text)
 import Data.Typeable
 import qualified Data.HashMap.Strict as HashMap
 import GHC.Exts
@@ -179,45 +178,36 @@ profileCont m env = do
   return r
 {-# INLINE profileCont #-}
 
-
-incrementMemoHitCounterFor :: ProfileKey -> Profile -> Profile
-incrementMemoHitCounterFor key p =
-  p { profile =
-      HashMap.insertWith
-        incrementMemoHitCounter
-        key
-        (emptyProfileData { profileMemoHits = 1 })
-        (profile p)
+incrementMemoHitCounterFor :: Env u w -> CallId -> Bool -> IO ()
+incrementMemoHitCounterFor env callId wasCached = do
+  modifyIORef' (profRef env) $ \p ->  p {
+    profile = HashMap.insertWith
+                upd
+                (profCurrentKey $ profCurrent env)
+                (emptyProfileData { profileMemos = [val] })
+                (profile p)
     }
-
-incrementMemoHitCounter :: ProfileData -> ProfileData -> ProfileData
-incrementMemoHitCounter _ pd = pd { profileMemoHits =
-                                    succ (profileMemoHits pd)
-                                  }
+  where
+    val = ProfileMemo callId wasCached
+    upd _ old = old { profileMemos = val : profileMemos old }
 
 {-# NOINLINE addProfileFetch #-}
 addProfileFetch
   :: forall r u w a . (DataSourceName r, Eq (r a), Hashable (r a), Typeable (r a))
-  => Env u w -> r a -> IO ()
-addProfileFetch env _req = do
+  => Env u w -> r a -> CallId -> Bool -> IO ()
+addProfileFetch env _req cid wasCached = do
   c <- getAllocationCounter
   let (ProfileCurrent profKey _) = profCurrent env
   modifyIORef' (profRef env) $ \ p ->
     let
-      dsName :: Text
-      dsName = dataSourceName (Proxy :: Proxy r)
-
-      upd _ old = old { profileFetches =
-        HashMap.insertWith (+) dsName 1 (profileFetches old) }
+      val = ProfileFetch cid (memoKey env) wasCached
+      upd _ old = old { profileFetches = val : profileFetches old }
 
     in p { profile =
            HashMap.insertWith
              upd
              profKey
-             (emptyProfileData { profileFetches =
-                                 HashMap.singleton dsName 1
-                               }
-             )
+             (emptyProfileData { profileFetches = [val] })
              (profile p)
          }
   -- So we do not count the allocation overhead of addProfileFetch

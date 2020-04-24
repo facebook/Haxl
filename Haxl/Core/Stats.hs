@@ -18,6 +18,7 @@ module Haxl.Core.Stats
   (
   -- * Data-source stats
     Stats(..)
+  , CallId
   , FetchStats(..)
   , Microseconds
   , Timestamp
@@ -30,6 +31,8 @@ module Haxl.Core.Stats
 
   -- * Profiling
   , Profile(..)
+  , ProfileMemo(..)
+  , ProfileFetch(..)
   , emptyProfile
   , ProfileKey
   , ProfileLabel
@@ -37,7 +40,6 @@ module Haxl.Core.Stats
   , emptyProfileData
   , AllocCount
   , LabelHitCount
-  , MemoHitCount
 
   -- * Allocation
   , getAllocationCounter
@@ -106,6 +108,7 @@ ppStats (Stats rss) =
     fetchWasRunning fs t1 t2 =
       (fetchStart fs + fetchDuration fs) >= t1 && fetchStart fs < t2
 
+type CallId = Int
 
 -- | Maps data source name to the number of requests made in that round.
 -- The map only contains entries for sources that made requests in that
@@ -115,11 +118,12 @@ data FetchStats
   = FetchStats
     { fetchDataSource :: Text
     , fetchBatchSize :: {-# UNPACK #-} !Int
-    , fetchStart :: !Timestamp          -- TODO should be something else
+    , fetchStart :: {-# UNPACK #-} !Timestamp
     , fetchDuration :: {-# UNPACK #-} !Microseconds
     , fetchSpace :: {-# UNPACK #-} !Int64
     , fetchFailures :: {-# UNPACK #-} !Int
     , fetchBatchId :: {-# UNPACK #-} !Int
+    , fetchIds :: [CallId]
     }
 
     -- | The stack trace of a call to 'dataFetch'.  These are collected
@@ -127,6 +131,11 @@ data FetchStats
   | FetchCall
     { fetchReq :: String
     , fetchStack :: [String]
+    , fetchStatId :: {-# UNPACK #-} !CallId
+    }
+  | MemoCall
+    { memoStatId :: {-# UNPACK #-} !CallId
+    , memoSpace :: {-# UNPACK #-} !Int64
     }
   deriving (Eq, Show)
 
@@ -136,7 +145,8 @@ ppFetchStats FetchStats{..} =
   printf "%s: %d fetches (%.2fms, %d bytes, %d failures)"
     (Text.unpack fetchDataSource) fetchBatchSize
     (fromIntegral fetchDuration / 1000 :: Double)  fetchSpace fetchFailures
-ppFetchStats (FetchCall r ss) = show r ++ '\n':show ss
+ppFetchStats (FetchCall r ss _) = show r ++ '\n':show ss
+ppFetchStats (MemoCall _r _ss) = ""
 
 -- | Aggregate stats merging FetchStats from the same dispatched batch into one.
 aggregateFetchBatches :: ([FetchStats] -> a) -> Stats -> [a]
@@ -154,11 +164,17 @@ instance ToJSON FetchStats where
     , "duration" .= fetchDuration
     , "allocation" .= fetchSpace
     , "failures" .= fetchFailures
-    , "bachid" .= fetchBatchId
+    , "batchid" .= fetchBatchId
+    , "fetchids" .= fetchIds
     ]
-  toJSON (FetchCall req strs) = object
+  toJSON (FetchCall req strs fid) = object
     [ "request" .= req
     , "stack" .= strs
+    , "fetchid" .= fid
+    ]
+  toJSON (MemoCall cid allocs) = object
+    [ "callid" .= cid
+    , "allocation" .= allocs
     ]
 
 emptyStats :: Stats
@@ -174,8 +190,20 @@ numFetches (Stats rs) = sum [ fetchBatchSize | FetchStats{..} <- rs ]
 type ProfileLabel = Text
 type AllocCount = Int64
 type LabelHitCount = Int64
-type MemoHitCount = Int64
 type ProfileKey = Int64
+
+data ProfileFetch = ProfileFetch
+  { profileFetchFetchId :: {-# UNPACK #-} !CallId
+  , profileFetchMemoId ::  {-# UNPACK #-} !CallId
+  , profileFetchWasCached :: !Bool
+  }
+  deriving (Show, Eq)
+
+data ProfileMemo = ProfileMemo
+  { profileMemoId :: {-# UNPACK #-} !CallId
+  , profileMemoWasCached :: !Bool
+  }
+  deriving (Show, Eq)
 
 data Profile = Profile
   { profile      :: HashMap ProfileKey ProfileData
@@ -193,14 +221,14 @@ emptyProfile = Profile HashMap.empty (HashMap.singleton ("MAIN", 0) 0) 1
 data ProfileData = ProfileData
   { profileAllocs :: {-# UNPACK #-} !AllocCount
      -- ^ allocations made by this label
-  , profileFetches :: HashMap Text Int
-     -- ^ map from datasource name => fetch count
+  , profileFetches :: [ProfileFetch]
+     -- ^ fetches made in this label
   , profileLabelHits :: {-# UNPACK #-} !LabelHitCount
      -- ^ number of hits at this label
-  , profileMemoHits :: {-# UNPACK #-} !MemoHitCount
-     -- ^ number of hits to memoized computation at this label
+  , profileMemos :: [ProfileMemo]
+     -- ^ memo and a boolean representing if it was cached at the time
   }
   deriving Show
 
 emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 HashMap.empty 0 0
+emptyProfileData = ProfileData 0 [] 0 []

@@ -141,6 +141,8 @@ cacheReuse future = do
   tao <- MockTAO.initGlobalState future
   let st = stateSet tao stateEmpty
   env2 <- initEnvWithData st testinput (caches env)
+  cid <- readIORef (callIdRef env2)
+  assertBool "callId is unique" (cid > 0)
 
   -- ensure no more data fetching rounds needed
   expectResultWithEnv 12 batching7_ env2
