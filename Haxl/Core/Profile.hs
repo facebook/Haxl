@@ -30,10 +30,8 @@ import Data.Monoid
 import Data.Text (Text)
 import Data.Typeable
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
 import GHC.Exts
 import qualified Data.Text as Text
-
 import Haxl.Core.DataSource
 import Haxl.Core.Flags
 import Haxl.Core.Stats
@@ -66,36 +64,78 @@ collectProfileData
   -> Env u w
   -> IO (Result u w a)
 collectProfileData l m env = do
-   a0 <- getAllocationCounter
-   r <- m env{profLabel=l} -- what if it throws?
-   a1 <- getAllocationCounter
-   modifyProfileData env l (a0 - a1)
-   -- So we do not count the allocation overhead of modifyProfileData
-   setAllocationCounter a1
-   case r of
-     Done a -> return (Done a)
-     Throw e -> return (Throw e)
-     Blocked ivar k -> return (Blocked ivar (Cont (withLabel l (toHaxl k))))
+  let (ProfileCurrent prevProfKey prevProfLabel) = profCurrent env
+  if prevProfLabel == l
+  then
+    -- do not add a new label if we are recursing
+    m env
+  else do
+    key <- atomicModifyIORef' (profRef env) $ \p ->
+      case HashMap.lookup (l, prevProfKey) (profileTree p) of
+        Just k -> (p, k)
+        Nothing -> (p
+          { profileTree = HashMap.insert
+            (l, prevProfKey)
+            (profileNextKey p)
+            (profileTree p)
+          , profileNextKey = profileNextKey p + 1 }, profileNextKey p)
+    runProfileData l key m env
 {-# INLINE collectProfileData #-}
 
-modifyProfileData :: Env u w -> ProfileLabel -> AllocCount -> IO ()
-modifyProfileData env label allocs =
+runProfileData
+  :: ProfileLabel
+  -> ProfileKey
+  -> (Env u w -> IO (Result u w a))
+  -> Env u w
+  -> IO (Result u w a)
+runProfileData l key m env = do
+  a0 <- getAllocationCounter
+  let
+    nextCurrent = ProfileCurrent
+                  { profCurrentKey = key
+                  , profCurrentLabel = l }
+    caller = profCurrentKey (profCurrent env)
+
+  r <- m env{profCurrent=nextCurrent} -- what if it throws?
+  a1 <- getAllocationCounter
+
+  -- caller might not be the actual caller of this function
+  -- for example MAIN may be continuing a function from the middle of the stack.
+  -- But this is what we want as we need to account for allocations.
+  -- So do not be tempted to pass through prevProfKey (from collectProfileData)
+  -- which is the original caller
+  modifyProfileData env key caller (a0 - a1)
+
+  -- So we do not count the allocation overhead of modifyProfileData
+  setAllocationCounter a1
+  case r of
+    Done a -> return (Done a)
+    Throw e -> return (Throw e)
+    Blocked ivar k -> return (Blocked ivar (Cont $ runCont (toHaxl k)))
+  where
+    runCont (GenHaxl h) = GenHaxl $ \env -> runProfileData l key h env
+{-# INLINE runProfileData #-}
+
+modifyProfileData
+  :: Env u w
+  -> ProfileKey
+  -> ProfileKey
+  -> AllocCount
+  -> IO ()
+modifyProfileData env key caller allocs = do
   modifyIORef' (profRef env) $ \ p ->
     p { profile =
-          HashMap.insertWith updEntry label newEntry .
+          HashMap.insertWith updEntry key newEntry .
           HashMap.insertWith updCaller caller newCaller $
           profile p }
-  where caller = profLabel env
-        newEntry =
+  where newEntry =
           emptyProfileData
             { profileAllocs = allocs
-            , profileDeps = HashSet.singleton caller
             , profileLabelHits = 1
             }
         updEntry _ old =
           old
             { profileAllocs = profileAllocs old + allocs
-            , profileDeps = HashSet.insert caller (profileDeps old)
             , profileLabelHits = profileLabelHits old + 1
             }
         -- subtract allocs from caller, so they are not double counted
@@ -129,9 +169,10 @@ profileCont m env = do
     allocs = a0 - a1
     newEntry = emptyProfileData { profileAllocs = allocs }
     updEntry _ old = old { profileAllocs = profileAllocs old + allocs }
+    profKey = profCurrentKey (profCurrent env)
   modifyIORef' (profRef env) $ \ p ->
     p { profile =
-         HashMap.insertWith updEntry (profLabel env) newEntry $
+         HashMap.insertWith updEntry profKey newEntry $
          profile p }
   -- So we do not count the allocation overhead of modifyProfileData
   setAllocationCounter a1
@@ -139,12 +180,12 @@ profileCont m env = do
 {-# INLINE profileCont #-}
 
 
-incrementMemoHitCounterFor :: ProfileLabel -> Profile -> Profile
-incrementMemoHitCounterFor lbl p =
+incrementMemoHitCounterFor :: ProfileKey -> Profile -> Profile
+incrementMemoHitCounterFor key p =
   p { profile =
       HashMap.insertWith
         incrementMemoHitCounter
-        lbl
+        key
         (emptyProfileData { profileMemoHits = 1 })
         (profile p)
     }
@@ -160,6 +201,7 @@ addProfileFetch
   => Env u w -> r a -> IO ()
 addProfileFetch env _req = do
   c <- getAllocationCounter
+  let (ProfileCurrent profKey _) = profCurrent env
   modifyIORef' (profRef env) $ \ p ->
     let
       dsName :: Text
@@ -171,7 +213,7 @@ addProfileFetch env _req = do
     in p { profile =
            HashMap.insertWith
              upd
-             (profLabel env)
+             profKey
              (emptyProfileData { profileFetches =
                                  HashMap.singleton dsName 1
                                }
