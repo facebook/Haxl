@@ -51,10 +51,10 @@ module Haxl.Core (
   , ppStats
   , ppFetchStats
   , aggregateFetchBatches
-  , Profile
+  , Profile(..)
   , emptyProfile
-  , profile
   , ProfileLabel
+  , ProfileKey
   , ProfileData(..)
   , emptyProfileData
   , AllocCount

@@ -29,9 +29,9 @@ module Haxl.Core.Stats
   , aggregateFetchBatches
 
   -- * Profiling
-  , Profile
+  , Profile(..)
   , emptyProfile
-  , profile
+  , ProfileKey
   , ProfileLabel
   , ProfileData(..)
   , emptyProfileData
@@ -47,7 +47,6 @@ module Haxl.Core.Stats
 import Data.Aeson
 import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
-import Data.HashSet (HashSet)
 import Data.Int
 import Data.List (intercalate, maximumBy, minimumBy, sortOn, groupBy)
 import Data.Semigroup (Semigroup)
@@ -56,7 +55,6 @@ import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import Text.Printf
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
 
 import GHC.Conc (getAllocationCounter, setAllocationCounter)
@@ -177,20 +175,24 @@ type ProfileLabel = Text
 type AllocCount = Int64
 type LabelHitCount = Int64
 type MemoHitCount = Int64
+type ProfileKey = Int64
 
-newtype Profile = Profile
-  { profile      :: HashMap ProfileLabel ProfileData
-     -- ^ Data on individual labels.
+data Profile = Profile
+  { profile      :: HashMap ProfileKey ProfileData
+     -- ^ Data per key (essentially per call stack)
+  , profileTree :: HashMap (ProfileLabel, ProfileKey) ProfileKey
+    -- ^ (label, parent) -> current. The exception is the root which will have
+    -- ("MAIN", 0) -> 0
+  , profileNextKey :: ProfileKey
+    -- ^ Provides a unique key per callstack
   }
 
 emptyProfile :: Profile
-emptyProfile = Profile HashMap.empty
+emptyProfile = Profile HashMap.empty (HashMap.singleton ("MAIN", 0) 0) 1
 
 data ProfileData = ProfileData
   { profileAllocs :: {-# UNPACK #-} !AllocCount
      -- ^ allocations made by this label
-  , profileDeps :: HashSet ProfileLabel
-     -- ^ labels that this label depends on
   , profileFetches :: HashMap Text Int
      -- ^ map from datasource name => fetch count
   , profileLabelHits :: {-# UNPACK #-} !LabelHitCount
@@ -201,4 +203,4 @@ data ProfileData = ProfileData
   deriving Show
 
 emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 HashSet.empty HashMap.empty 0 0
+emptyProfileData = ProfileData 0 HashMap.empty 0 0
