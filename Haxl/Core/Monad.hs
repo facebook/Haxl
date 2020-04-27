@@ -123,6 +123,7 @@ import Haxl.Core.RequestStore as RequestStore
 import Haxl.Core.DataCache as DataCache
 import Haxl.Core.Util (trace_)
 
+import Control.Applicative (liftA2)
 import Control.Arrow (left)
 import Control.Concurrent.STM
 import qualified Data.Text as Text
@@ -133,6 +134,9 @@ import qualified Control.Exception as Exception
 import Data.IORef
 import Data.Int
 import Data.Either (rights)
+#if __GLASGOW_HASKELL__ < 804
+import Data.Semigroup
+#endif
 import GHC.Exts (IsString(..))
 import Text.PrettyPrint hiding ((<>))
 import Text.Printf
@@ -777,6 +781,9 @@ instance Applicative (GenHaxl u w) where
           Blocked ivar2 acont -> trace_ "Blocked/Blocked" $
             blockedBlocked env ivar1 fcont ivar2 acont
              -- Note [Blocked/Blocked]
+
+instance Semigroup a => Semigroup (GenHaxl u w a) where
+  (<>) = liftA2 (<>)
 
 blockedBlocked
   :: Env u w
