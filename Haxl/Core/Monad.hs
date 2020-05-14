@@ -794,6 +794,9 @@ instance Applicative (GenHaxl u w) where
 instance Semigroup a => Semigroup (GenHaxl u w a) where
   (<>) = liftA2 (<>)
 
+instance Monoid a => Monoid (GenHaxl u w a) where
+  mempty = pure mempty
+
 blockedBlocked
   :: Env u w
   -> IVar u w c
