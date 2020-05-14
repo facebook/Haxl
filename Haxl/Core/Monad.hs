@@ -129,7 +129,12 @@ import Control.Concurrent.STM
 import qualified Data.Text as Text
 import qualified Control.Monad.Catch as Catch
 import Control.Exception (Exception(..), SomeException, throwIO)
+#if __GLASGOW_HASKELL__ >= 808
+import Control.Monad hiding (MonadFail)
+import qualified Control.Monad as CTL
+#else
 import Control.Monad
+#endif
 import qualified Control.Exception as Exception
 import Data.IORef
 import Data.Int
@@ -743,11 +748,15 @@ instance Monad (GenHaxl u w) where
       Throw e -> return (Throw e)
       Blocked ivar cont -> trace_ ">>= Blocked" $
         return (Blocked ivar (cont :>>= k))
-  fail msg = GenHaxl $ \_env ->
-    return $ Throw $ toException $ MonadFail $ Text.pack msg
 
   -- We really want the Applicative version of >>
   (>>) = (*>)
+
+#if __GLASGOW_HASKELL__ >= 808
+instance CTL.MonadFail (GenHaxl u w) where
+#endif
+  fail msg = GenHaxl $ \_env ->
+    return $ Throw $ toException $ MonadFail $ Text.pack msg
 
 instance Functor (GenHaxl u w) where
   fmap f (GenHaxl m) = GenHaxl $ \env -> do

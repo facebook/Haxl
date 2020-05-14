@@ -4,6 +4,7 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -72,6 +73,9 @@ module Haxl.Core.Exception (
   tryWithRethrow,
   ) where
 
+#if __GLASGOW_HASKELL__ >= 808
+import Prelude hiding (MonadFail)
+#endif
 import Control.Exception as Exception
 import Data.Aeson
 import Data.Binary (Binary)
