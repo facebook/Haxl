@@ -162,6 +162,22 @@ fetchIdsBackground = TestCase $ do
   assertBool "long fetch was mapped properly" (fetchDuration longFetch > 100000)
 
 
+ppStatsTest :: Test
+ppStatsTest = TestCase $ do
+  let
+    r = ppStats (Stats [])
+    mc = ppStats (Stats [MemoCall 0 0])
+    fc = ppStats (Stats [FetchCall "" [] 0])
+    fw = ppStats (Stats [FetchWait HashMap.empty 0 1])
+    fs = ppStats (Stats [FetchStats "" 0 0 0 0 0 0 []])
+  assertEqual "empty stats -> empty string" r ""
+  assertEqual "memo call stats -> empty string" mc ""
+  assertEqual "fetch call stats -> empty string" fc ""
+  assertBool "fetch wait stats -> some data" (not $ null fw)
+  assertBool "fetch stats -> some data" (not $ null fs)
+
+
 tests = TestList [ TestLabel "Aggregate Batches" aggregateBatches
                  , TestLabel "Fetch IDs Sync" fetchIdsSync
-                 , TestLabel "Fetch IDs Background" fetchIdsBackground ]
+                 , TestLabel "Fetch IDs Background" fetchIdsBackground
+                 , TestLabel "ppStats" ppStatsTest ]

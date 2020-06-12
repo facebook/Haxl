@@ -202,9 +202,35 @@ runHaxlWithWrites env@Env{..} haxl = do
     waitCompletions :: Env u w -> IO ()
     waitCompletions env@Env{..} = do
       ifTraceLog $ printf "waitCompletions\n"
-      atomicallyOnBlocking (LogicBug ReadingCompletionsFailedRun) $ do
-        c <- readTVar completions
-        when (null c) retry
+      let
+        wrapped = atomicallyOnBlocking (LogicBug ReadingCompletionsFailedRun)
+        doWait = wrapped $ do
+          c <- readTVar completions
+          when (null c) retry
+        doWaitProfiled = do
+          queueEmpty <- null <$> wrapped (readTVar completions)
+          when queueEmpty $ do
+            -- Double check the queue as we want to make sure that
+            -- submittedReqsRef is copied before waiting on the queue but as a
+            -- fast path do not want to copy it if the queue is empty.
+            -- There is still a race oppoortunity as submittedReqsRef is
+            -- decremented in whatever thread the completion happens, and so it
+            -- is possible for waitingOn to be empty while queueEmpty2 is True.
+            waitingOn <- readIORef submittedReqsRef
+            queueEmpty2 <- null <$> wrapped (readTVar completions)
+            when queueEmpty2 $ do
+              start <- getTimestamp
+              doWait
+              end <- getTimestamp
+              let fw = FetchWait
+                        { fetchWaitReqs = getSummaryMapFromRCMap waitingOn
+                        , fetchWaitStart = start
+                        , fetchWaitDuration = (end-start)
+                        }
+              modifyIORef' statsRef $ \(Stats s) -> Stats (fw:s)
+      if report flags >= 2
+        then doWaitProfiled
+        else doWait
       emptyRunQueue env
 
   --

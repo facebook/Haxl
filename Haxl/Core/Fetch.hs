@@ -152,13 +152,15 @@ stdResultVar ivar completions ref flags p =
         getAllocationCounter
       else
         return 0
-    -- Decrement the counter as request has finished
-    ifReport flags 1 $
-      atomicModifyIORef' ref (\m -> (subFromCountMap p 1 m, ()))
     atomicallyOnBlocking
       (LogicBug (ReadingCompletionsFailedFetch (dataSourceName p))) $ do
       cs <- readTVar completions
       writeTVar completions (CompleteReq r ivar allocs : cs)
+    -- Decrement the counter as request has finished. Do this after updating the
+    -- completions TVar so that if the scheduler is tracking what was being
+    -- waited on it gets a consistent view.
+    ifReport flags 1 $
+      atomicModifyIORef' ref (\m -> (subFromCountMap p 1 m, ()))
 {-# INLINE stdResultVar #-}
 
 
@@ -401,7 +403,7 @@ performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
   let roundtime = fromIntegral (t1 - t0) / 1000000 :: Double
 
   ifTrace f 1 $
-    printf "Batch data fetch done (%.2fs)\n" (realToFrac roundtime :: Double)
+    printf "Batch data fetch done (%.4fs)\n" (realToFrac roundtime :: Double)
 
 data FetchToDo where
   FetchToDo

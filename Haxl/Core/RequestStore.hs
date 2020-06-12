@@ -31,6 +31,7 @@ module Haxl.Core.RequestStore
   , emptyReqCounts
   , filterRCMap
   , getMapFromRCMap
+  , getSummaryMapFromRCMap
   , addToCountMap
   , subFromCountMap
   ) where
@@ -38,6 +39,7 @@ module Haxl.Core.RequestStore
 import Haxl.Core.DataSource
 import Haxl.Core.Stats
 import Data.Map (Map)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Proxy
 import Data.Text (Text)
@@ -150,3 +152,12 @@ filterRCMap (ReqCountMap m) = ReqCountMap $
 getMapFromRCMap :: ReqCountMap -> Map Text (Map TypeRep Int)
 getMapFromRCMap r
   | ReqCountMap m <- filterRCMap r = m
+
+getSummaryMapFromRCMap :: ReqCountMap -> HashMap.HashMap Text Int
+getSummaryMapFromRCMap (ReqCountMap m) = HashMap.fromList
+  [ (k, s)
+  | (k, v) <- Map.toList m
+  , not $ Map.null v
+  , let s = sum $ Map.elems v
+  , s > 0
+  ]

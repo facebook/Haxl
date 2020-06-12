@@ -48,11 +48,12 @@ module Haxl.Core.Stats
 
 import Data.Aeson
 import Data.Function (on)
+import Data.Maybe (mapMaybe)
 import Data.HashMap.Strict (HashMap)
 import Data.Int
-import Data.List (intercalate, maximumBy, minimumBy, sortOn, groupBy)
+import Data.List (intercalate, sortOn, groupBy)
 import Data.Semigroup (Semigroup)
-import Data.Ord (comparing, Down(..))
+import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import Text.Printf
@@ -88,7 +89,7 @@ ppStats (Stats rss) =
       if fetchWasRunning rs
           (minStartTime + (t - 1) * usPerDash)
           (minStartTime + t * usPerDash)
-        then '*'
+        then fetchSymbol rs
         else '-'
       | t <- [1..numDashes]
       ]
@@ -96,17 +97,28 @@ ppStats (Stats rss) =
     | (i, rs) <- zip [(1::Int)..] validFetchStats ]
   where
     isFetchStats FetchStats{} = True
+    isFetchStats FetchWait{} = True
     isFetchStats _ = False
     validFetchStats = filter isFetchStats (reverse rss)
     numDashes = 50
-    minStartTime = fetchStart $ minimumBy (comparing fetchStart) validFetchStats
-    lastFs = maximumBy (comparing (\fs -> fetchStart fs + fetchDuration fs))
-      validFetchStats
-    usPerDash = (fetchStart lastFs + fetchDuration lastFs - minStartTime)
-      `div` numDashes
+    getStart FetchStats{..} = Just fetchStart
+    getStart FetchWait{..} = Just fetchWaitStart
+    getStart _ = Nothing
+    getEnd FetchStats{..} = Just $ fetchStart + fetchDuration
+    getEnd FetchWait{..} = Just $ fetchWaitStart + fetchWaitDuration
+    getEnd _ = Nothing
+    minStartTime = minimum $ mapMaybe getStart validFetchStats
+    endTime = maximum $ mapMaybe getEnd validFetchStats
+    usPerDash = (endTime - minStartTime) `div` numDashes
+    fetchSymbol FetchStats{} = '*'
+    fetchSymbol FetchWait{} = '.'
+    fetchSymbol _ = '?'
     fetchWasRunning :: FetchStats -> Timestamp -> Timestamp -> Bool
-    fetchWasRunning fs t1 t2 =
+    fetchWasRunning fs@FetchStats{} t1 t2 =
       (fetchStart fs + fetchDuration fs) >= t1 && fetchStart fs < t2
+    fetchWasRunning fw@FetchWait{} t1 t2 =
+      (fetchWaitStart fw + fetchWaitDuration fw) >= t1 && fetchWaitStart fw < t2
+    fetchWasRunning _ _ _ = False
 
 type CallId = Int
 
@@ -137,6 +149,12 @@ data FetchStats
     { memoStatId :: {-# UNPACK #-} !CallId
     , memoSpace :: {-# UNPACK #-} !Int64
     }
+  | FetchWait
+    { fetchWaitReqs :: HashMap Text Int
+       -- ^ What DataSources had requests that were being waited for
+    , fetchWaitStart :: {-# UNPACK #-} !Timestamp
+    , fetchWaitDuration :: {-# UNPACK #-} !Microseconds
+    }
   deriving (Eq, Show)
 
 -- | Pretty-print RoundStats.
@@ -146,7 +164,21 @@ ppFetchStats FetchStats{..} =
     (Text.unpack fetchDataSource) fetchBatchSize
     (fromIntegral fetchDuration / 1000 :: Double)  fetchSpace fetchFailures
 ppFetchStats (FetchCall r ss _) = show r ++ '\n':show ss
-ppFetchStats (MemoCall _r _ss) = ""
+ppFetchStats MemoCall{} = ""
+ppFetchStats FetchWait{..}
+  | HashMap.size fetchWaitReqs == 0 = msg "unexpected: Blocked on nothing"
+  | HashMap.size fetchWaitReqs <= 2 =
+    msg $ printf "Blocked on %s"
+      (intercalate "," [printf "%s (%d reqs)" ds c
+                       | (ds,c) <- HashMap.toList fetchWaitReqs])
+  | otherwise = msg $ printf "Blocked on %d sources (%d reqs)"
+                        (HashMap.size fetchWaitReqs)
+                        (sum $ HashMap.elems fetchWaitReqs)
+  where
+    msg :: String -> String
+    msg x = printf "%s (%.2fms)"
+                x
+                (fromIntegral fetchWaitDuration / 1000 :: Double)
 
 -- | Aggregate stats merging FetchStats from the same dispatched batch into one.
 aggregateFetchBatches :: ([FetchStats] -> a) -> Stats -> [a]
@@ -158,7 +190,8 @@ aggregateFetchBatches agg (Stats fetches) =
 
 instance ToJSON FetchStats where
   toJSON FetchStats{..} = object
-    [ "datasource" .= fetchDataSource
+    [ "type" .= ("FetchStats" :: Text)
+    , "datasource" .= fetchDataSource
     , "fetches" .= fetchBatchSize
     , "start" .= fetchStart
     , "duration" .= fetchDuration
@@ -168,13 +201,19 @@ instance ToJSON FetchStats where
     , "fetchids" .= fetchIds
     ]
   toJSON (FetchCall req strs fid) = object
-    [ "request" .= req
+    [ "type" .= ("FetchCall" :: Text)
+    , "request" .= req
     , "stack" .= strs
     , "fetchid" .= fid
     ]
   toJSON (MemoCall cid allocs) = object
-    [ "callid" .= cid
+    [ "type" .= ("MemoCall" :: Text)
+    , "callid" .= cid
     , "allocation" .= allocs
+    ]
+  toJSON FetchWait{..} = object
+    [ "type" .= ("FetchWait" :: Text)
+    , "duration" .= fetchWaitDuration
     ]
 
 emptyStats :: Stats
@@ -209,10 +248,10 @@ data Profile = Profile
   { profile      :: HashMap ProfileKey ProfileData
      -- ^ Data per key (essentially per call stack)
   , profileTree :: HashMap (ProfileLabel, ProfileKey) ProfileKey
-    -- ^ (label, parent) -> current. The exception is the root which will have
-    -- ("MAIN", 0) -> 0
+     -- ^ (label, parent) -> current. The exception is the root which will have
+     -- ("MAIN", 0) -> 0
   , profileNextKey :: ProfileKey
-    -- ^ Provides a unique key per callstack
+     -- ^ Provides a unique key per callstack
   }
 
 emptyProfile :: Profile
