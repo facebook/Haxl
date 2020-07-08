@@ -43,8 +43,7 @@ biselect_opt :: (l -> Either a b)
              -> GenHaxl u w t
 biselect_opt discrimA discrimB left right haxla haxlb =
   let go (GenHaxl haxla) (GenHaxl haxlb) = GenHaxl $ \env@Env{..} -> do
-        let !senv = speculate env
-        ra <- haxla senv
+        ra <- haxla env
         case ra of
           Done ea ->
             case discrimA ea of
@@ -62,7 +61,7 @@ biselect_opt discrimA discrimB left right haxla haxlb =
                               (haxlb' :>>= \b' -> go_right b b'))
           Throw e -> return (Throw e)
           Blocked ia haxla' -> do
-            rb <- haxlb senv
+            rb <- haxlb env
             case rb of
               Done eb ->
                 case discrimB eb of
@@ -73,8 +72,8 @@ biselect_opt discrimA discrimB left right haxla haxlb =
               Throw e -> return (Throw e)
               Blocked ib haxlb' -> do
                 i <- newIVar
-                addJob senv (return ()) i ia
-                addJob senv (return ()) i ib
+                addJob env (return ()) i ia
+                addJob env (return ()) i ib
                 return (Blocked i (Cont (go (toHaxl haxla') (toHaxl haxlb'))))
                 -- The code above makes sure that the computation
                 -- wakes up whenever either 'ia' or 'ib' is filled.

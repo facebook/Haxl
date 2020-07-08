@@ -82,8 +82,6 @@ module Haxl.Core.Monad
   , emptyEnv
   , env, withEnv
   , nextCallId
-  , speculate
-  , imperative
 
     -- * Profiling
   , ProfileCurrent(..)
@@ -225,8 +223,6 @@ data Env u w = Env
        -- become non-empty is how the scheduler blocks waiting for
        -- data fetches to return.
 
-  , speculative :: {-# UNPACK #-} !Int
-
   , writeLogsRef :: {-# UNPACK #-} !(IORef (WriteTree w))
        -- ^ A log of all writes done as part of this haxl computation. Any
        -- haxl computation that needs to be memoized runs in its own
@@ -298,7 +294,6 @@ initEnvWithData states e (dcache, mcache) = do
     , runQueueRef = rq
     , submittedReqsRef = sr
     , completions = comps
-    , speculative = 0
     , writeLogsRef = wl
     , writeLogsRefNoMemo = wlnm
 #ifdef PROFILING
@@ -317,16 +312,6 @@ initEnv states e = do
 -- | A new, empty environment.
 emptyEnv :: u -> IO (Env u w)
 emptyEnv = initEnv stateEmpty
-
-speculate :: Env u w -> Env u w
-speculate env@Env{..}
-  | speculative == 0 = env { speculative = 1 }
-  | otherwise = env
-
-imperative :: Env u w -> Env u w
-imperative env@Env{..}
-  | speculative == 1 = env { speculative = 0 }
-  | otherwise = env
 
 -- -----------------------------------------------------------------------------
 -- WriteTree
@@ -616,10 +601,6 @@ way to synchronise it with the main runHaxl loop; the advantage of
 putResult is that this is already a synchronisation method, because
 runHaxl is waiting for the result of the dataFetch.
 
-(slight wrinkle here: runHaxl might not wait for the result of the
-dataFetch in the case where we do some speculative execution in
-pAnd/pOr)
-
 We need a special version of putResult for child threads
 (putResultFromChildThread), because we don't want to propagate any
 allocation from the runHaxl thread back to itself and count it twice.
@@ -804,8 +785,6 @@ blockedBlocked
   -> IVar u w d
   -> Cont u w a
   -> IO (Result u w b)
-blockedBlocked env ivar1 fcont _ acont | speculative env /= 0 =
-  return (Blocked ivar1 (Cont (toHaxl fcont <*> toHaxl acont)))
 blockedBlocked _ _ (Return i) ivar2 acont =
   return (Blocked ivar2 (acont :>>= getIVarApply i))
 blockedBlocked _ _ (g :<$> Return i) ivar2 acont =
