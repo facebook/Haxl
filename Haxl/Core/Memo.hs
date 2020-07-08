@@ -243,11 +243,10 @@ execMemoNow :: Env u w -> GenHaxl u w a -> IVar u w a -> IO (Result u w a)
 execMemoNow env cont ivar = do
   wlogs <- newIORef NilWrites
   let
-    !ienv = imperative env { writeLogsRef = wlogs }
-    -- don't speculate under memoized things
-    -- also we won't an env with empty writes, so we can memoize the extra
+    !menv = env { writeLogsRef = wlogs }
+    -- use an env with empty writes, so we can memoize the extra
     -- writes done as part of 'cont'
-  r <- Exception.try $ unHaxl cont ienv
+  r <- Exception.try $ unHaxl cont menv
 
   case r of
     Left e -> trace_ ("execMemoNow: Left " ++ show e) $ do
@@ -265,10 +264,10 @@ execMemoNow env cont ivar = do
       mbModifyWLRef wt (writeLogsRef env)
       return (Throw ex)
     Right (Blocked ivar' cont) -> trace_ "execMemoNow: Blocked" $ do
-      -- We "block" this memoized computation in the new environment 'ienv', so
+      -- We "block" this memoized computation in the new environment 'menv', so
       -- that when it finishes, we can store all the write logs from the env
       -- in the IVar.
-      addJob ienv (toHaxl cont) ivar ivar'
+      addJob menv (toHaxl cont) ivar ivar'
       -- Now we call @getIVarWithWrites@ to populate the writes in the original
       -- environment 'env'.
       return (Blocked ivar (Cont (getIVarWithWrites ivar)))
