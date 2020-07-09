@@ -49,7 +49,6 @@ module Haxl.DataSource.ConcurrentIO
   ) where
 
 import Control.Concurrent
-import Control.Exception as Exception
 import Control.Monad
 import qualified Data.Text as Text
 import Data.Typeable
@@ -79,5 +78,4 @@ instance
  where
   fetch _state _flags _u = BackgroundFetch $ \bfs -> do
     forM_ bfs $ \(BlockedFetch req rv) ->
-      mask $ \unmask ->
-        forkFinally (unmask (performIO req)) (putResultFromChildThread rv)
+      forkFinally (performIO req) (putResultFromChildThread rv)

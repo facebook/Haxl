@@ -53,9 +53,9 @@ tests :: Test
 tests = TestList
   [ outgoneFetchesTest "finished" 0 $ do
       -- test that a completed datasource fetch doesn't show up in Env
-      _ <- sleep 50   -- finished
-      _ <- sleep 50   -- cached/finished
-      _ <- sleep 50   -- cached/finished
+      _ <- sleep 1  -- finished
+      _ <- sleep 1  -- cached/finished
+      _ <- sleep 1  -- cached/finished
       wombats
   , outgoneFetchesTest "unfinished" 2 $ do
       -- test that unfinished datasource fetches shows up in Env
@@ -66,7 +66,7 @@ tests = TestList
       return ()
   , outgoneFetchesTest "mixed" 2 $ do
       -- test for finished/unfinished fetches from the same datasource
-      _ <- sleep 50   -- finished
+      _ <- sleep 1   -- finished
       _ <- sleep 200  -- unfinished
       _ <- sleep 300  -- unfinished
       return ()
