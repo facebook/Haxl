@@ -17,6 +17,7 @@ module Haxl.Core.DataCache
   ( DataCache(..)
   , SubCache(..)
   , emptyDataCache
+  , filter
   , insert
   , insertNotShowable
   , insertWithShow
@@ -25,7 +26,7 @@ module Haxl.Core.DataCache
   , readCache
   ) where
 
-import Prelude hiding (lookup)
+import Prelude hiding (lookup, filter)
 import Control.Exception
 import Unsafe.Coerce
 import Data.Typeable
@@ -140,6 +141,28 @@ lookup req (DataCache m) = do
     Just (SubCache _ _ sc) ->
       unsafeCoerce (H.lookup sc (unsafeCoerce req))
 
+filter
+  :: forall res
+  . (forall a. res a -> IO Bool)
+  -> DataCache res
+  -> IO (DataCache res)
+filter pred (DataCache cache) = do
+  cacheList <- H.toList cache
+  filteredCache <- filterSubCache `mapM` cacheList
+  DataCache <$> H.fromList filteredCache
+  where
+    filterSubCache
+      :: (TypeRep, SubCache res)
+      -> IO (TypeRep, SubCache res)
+    filterSubCache (ty, SubCache showReq showRes hm) = do
+      filteredList <- H.foldM go [] hm
+      filteredSC <- H.fromList filteredList
+      return (ty, SubCache showReq showRes filteredSC)
+      where
+        go res (request, rvar) = do
+          predRes <- pred rvar
+          return $ if predRes then (request, rvar):res else res
+
 -- | Dumps the contents of the cache, with requests and responses
 -- converted to 'String's using the supplied show functions.  The
 -- entries are grouped by 'TypeRep'.  Note that this will fail if
@@ -149,7 +172,6 @@ showCache
   .  DataCache res
   -> (forall a . res a -> IO (Maybe (Either SomeException a)))
   -> IO [(TypeRep, [(String, Either SomeException String)])]
-
 showCache (DataCache cache) readRes = H.foldM goSubCache [] cache
   where
     goSubCache

@@ -151,11 +151,12 @@ runHaxlWithWrites env@Env{..} haxl = do
 
     checkRequestStore :: Env u w -> IO ()
     checkRequestStore env@Env{..} = do
+      ifTraceLog $ printf "checkRequestStore\n"
       reqStore <- readIORef reqStoreRef
       if RequestStore.isEmpty reqStore
         then waitCompletions env
         else do
-          ifTraceLog $ printf "performFetches\n"
+          ifTraceLog $ printf "performFetches %d\n" (RequestStore.getSize reqStore)
           writeIORef reqStoreRef noRequests
           performRequestStore env reqStore
           -- empty the cache if we're not caching.  Is this the best

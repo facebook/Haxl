@@ -27,6 +27,7 @@ module Haxl.Core.RequestStore
   , noRequests
   , addRequest
   , contents
+  , getSize
   , ReqCountMap(..)
   , emptyReqCounts
   , filterRCMap
@@ -93,6 +94,9 @@ addRequest bf bfi (RequestStore m) =
 -- | Retrieves the whole contents of the 'RequestStore'.
 contents :: RequestStore u -> [BlockedFetches u]
 contents (RequestStore m) = Map.elems m
+
+getSize :: RequestStore u -> Int
+getSize (RequestStore m) = Map.size m
 
 -- A counter to keep track of outgone requests. Entries are added to this
 -- map as we send requests to datasources, and removed as these fetches
