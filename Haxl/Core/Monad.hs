@@ -317,10 +317,10 @@ emptyEnv = initEnv stateEmpty
 -- | If you're using the env from a failed Haxl computation in a second Haxl
 -- computation, it is recommended to sanitize the Env to remove all empty
 -- IVars - especially if it's possible the first Haxl computation could've
--- been interrupted via an async exception. This is because when we throw an
--- async exc to a Haxl computation, it's possible that there are entries in
--- the cache which are still blocked, while the results from outgone fetches
--- have been discarded.
+-- been interrupted via an async exception. This is because if the Haxl
+-- computation was interrupted by an exception, it's possible that there are
+-- entries in the cache which are still blocked, while the results from
+-- outgone fetches have been discarded.
 sanitizeEnv :: Env u w -> IO (Env u w)
 sanitizeEnv env@Env{..} = do
   sanitizedDC <- DataCache.filter isIVarFull dataCache

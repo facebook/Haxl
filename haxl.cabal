@@ -133,6 +133,7 @@ test-suite test
     LoadCache
     MemoizationTests
     MockTAO
+    MonadAsyncTest
     OutgoneFetchesTests
     ParallelTests
     ProfileTests

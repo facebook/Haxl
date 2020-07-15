@@ -15,6 +15,7 @@ import AdoTests
 import OutgoneFetchesTests
 import ProfileTests
 import MemoizationTests
+import MonadAsyncTest
 import TestBadDataSource
 import FullyAsyncTest
 import WriteTests
@@ -34,6 +35,7 @@ allTests = TestList
   , TestLabel "OutgoneFetchesTest" OutgoneFetchesTests.tests
   , TestLabel "ProfileTests" ProfileTests.tests
   , TestLabel "MemoizationTests" MemoizationTests.tests
+  , TestLabel "MonadAsyncTests" MonadAsyncTest.tests
   , TestLabel "BadDataSourceTests" TestBadDataSource.tests
   , TestLabel "FullyAsyncTest" FullyAsyncTest.tests
   , TestLabel "WriteTest" WriteTests.tests
