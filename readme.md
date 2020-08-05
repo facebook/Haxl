@@ -57,3 +57,11 @@ Graph API.
    Hackage.
 
  * [There is no Fork: An Abstraction for Efficient, Concurrent, and Concise Data Access](http://simonmar.github.io/bib/papers/haxl-icfp14.pdf), our paper on Haxl, accepted for publication at ICFP'14.
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING](https://github.com/facebook/Haxl/blob/master/CONTRIBUTING.md) for details on how to get started, and our [Code of Conduct](https://github.com/facebook/Haxl/blob/master/CODE_OF_CONDUCT.md).
+
+## License
+
+Haxl uses the BSD 3-clause License, as found in the [LICENSE](https://github.com/facebook/Haxl/blob/master/LICENSE) file.
