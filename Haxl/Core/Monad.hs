@@ -808,6 +808,7 @@ instance Semigroup a => Semigroup (GenHaxl u w a) where
 
 instance Monoid a => Monoid (GenHaxl u w a) where
   mempty = pure mempty
+  mappend = liftA2 mappend
 
 blockedBlocked
   :: Env u w
