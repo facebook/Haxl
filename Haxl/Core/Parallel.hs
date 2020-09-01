@@ -6,6 +6,7 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- | Psuedo-parallel operations.  Most users should import "Haxl.Core"
@@ -16,9 +17,13 @@ module Haxl.Core.Parallel
     biselect
   , pAnd
   , pOr
+  , unsafeChooseFirst
   ) where
 
-import Haxl.Core.Monad hiding (catch)
+import Haxl.Core.Monad hiding (catch, throw)
+import Haxl.Core.Exception
+
+import Control.Exception (throw)
 
 -- -----------------------------------------------------------------------------
 -- Parallel operations
@@ -125,3 +130,22 @@ pAnd x y = biselect_opt discrim discrim left right x y
     discrim True = Right ()
     left _ = False
     right _ = True
+
+-- | This function takes two haxl computations as input, and returns the
+-- output of whichever computation finished first. This is clearly
+-- non-deterministic in its output and exception behavior, be careful when
+-- using it.
+unsafeChooseFirst
+  :: GenHaxl u w a
+  -> GenHaxl u w b
+  -> GenHaxl u w (Either a b)
+unsafeChooseFirst x y = biselect_opt discrimx discrimy id right x y
+  where
+    discrimx :: a -> Either (Either a b) ()
+    discrimx a = Left (Left a)
+
+    discrimy :: b -> Either (Either a b) ()
+    discrimy b = Left (Right b)
+
+    right _ = throw $ CriticalError
+      "unsafeChooseFirst: We should never have a 'Right ()'"
