@@ -387,7 +387,13 @@ performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
         Just state ->
           return $ FetchToDo reqs
             $ (if report f >= 2
-                then wrapFetchInStats sref sbref dsName (length reqs) bfs
+                then wrapFetchInStats
+                        (userEnv env)
+                        sref
+                        sbref
+                        dsName
+                        (length reqs)
+                        bfs
                 else id)
             $ wrapFetchInTrace i (length reqs) dsName
             $ wrapFetchInCatch reqs
@@ -446,9 +452,25 @@ wrapFetchInCatch reqs fetch =
       putResult rvar (except e)
 
 
+data FailureCount = FailureCount
+  { failureCountStandard :: {-# UNPACK #-} !Int
+  , failureCountIgnored :: {-# UNPACK #-} !Int
+  }
+
+#if __GLASGOW_HASKELL__ >= 804
+instance Semigroup FailureCount where
+  (<>) = mappend
+#endif
+
+instance Monoid FailureCount where
+  mempty = FailureCount 0 0
+  mappend (FailureCount s1 i1) (FailureCount s2 i2)
+    = FailureCount (s1+s2) (i1+i2)
+
 wrapFetchInStats
-  :: forall u req .
-     IORef Stats
+  :: DataSource u req
+  => u
+  -> IORef Stats
   -> IORef Int
   -> Text
   -> Int
@@ -456,6 +478,7 @@ wrapFetchInStats
   -> PerformFetch req
   -> PerformFetch req
 wrapFetchInStats
+  u
   !statsRef
   !batchIdRef
   dataSource
@@ -466,19 +489,19 @@ wrapFetchInStats
     SyncFetch f ->
       SyncFetch $ \reqs -> do
         bid <- newBatchId
-        fail_ref <- newIORef 0
-        (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount fail_ref) reqs))
+        fail_ref <- newIORef mempty
+        (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount u fail_ref) reqs))
         failures <- readIORef fail_ref
         updateFetchStats bid allFids t0 t alloc batchSize failures
     AsyncFetch f -> do
       AsyncFetch $ \reqs inner -> do
         bid <- newBatchId
         inner_r <- newIORef (0, 0)
-        fail_ref <- newIORef 0
+        fail_ref <- newIORef mempty
         let inner' = do
               (_,t,alloc,_) <- statsForIO inner
               writeIORef inner_r (t,alloc)
-            reqs' = map (addFailureCount fail_ref) reqs
+            reqs' = map (addFailureCount u fail_ref) reqs
         (t0, totalTime, totalAlloc, _) <- statsForIO (f reqs' inner')
         (innerTime, innerAlloc) <- readIORef inner_r
         failures <- readIORef fail_ref
@@ -488,7 +511,7 @@ wrapFetchInStats
       BackgroundFetch $ \reqs -> do
         bid <- newBatchId
         startTime <- getTimestamp
-        io (zipWith (addTimer bid startTime) reqs reqsI)
+        io (zipWith (addTimer u bid startTime) reqs reqsI)
   where
     allFids = map (\(BlockedFetchInternal k) -> k) reqsI
     newBatchId = atomicModifyIORef' batchIdRef $ \x -> (x+1,x+1)
@@ -498,7 +521,14 @@ wrapFetchInStats
       postAlloc <- getAllocationCounter
       return (t0,t, fromIntegral $ prevAlloc - postAlloc, a)
 
+    calcFailure _u _r (Right _) = mempty
+    calcFailure u r (Left e) = case classifyFailure u r e of
+      StandardFailure -> mempty { failureCountStandard = 1 }
+      IgnoredForStatsFailure -> mempty { failureCountIgnored = 1 }
+
+
     addTimer
+      u
       bid
       t0
       (BlockedFetch req (ResultVar fn))
@@ -515,7 +545,7 @@ wrapFetchInStats
           updateFetchStats bid [fid] t0 (t1 - t0)
             (negate allocs)
             1 -- batch size: we don't know if this is a batch or not
-            (if isLeft result then 1 else 0) -- failures
+            (calcFailure u req result) -- failures
           fn result isChildThread
 
     updateFetchStats
@@ -525,23 +555,26 @@ wrapFetchInStats
       -> Microseconds
       -> Int64
       -> Int
-      -> Int
+      -> FailureCount
       -> IO ()
-    updateFetchStats bid fids start time space batch failures = do
+    updateFetchStats bid fids start time space batch FailureCount{..} = do
       let this = FetchStats { fetchDataSource = dataSource
                             , fetchBatchSize = batch
                             , fetchStart = start
                             , fetchDuration = time
                             , fetchSpace = space
-                            , fetchFailures = failures
+                            , fetchFailures = failureCountStandard
+                            , fetchIgnoredFailures = failureCountIgnored
                             , fetchBatchId = bid
                             , fetchIds = fids }
       atomicModifyIORef' statsRef $ \(Stats fs) -> (Stats (this : fs), ())
 
-    addFailureCount :: IORef Int -> BlockedFetch r -> BlockedFetch r
-    addFailureCount ref (BlockedFetch req (ResultVar fn)) =
+    addFailureCount :: DataSource u r
+      => u -> IORef FailureCount -> BlockedFetch r -> BlockedFetch r
+    addFailureCount u ref (BlockedFetch req (ResultVar fn)) =
       BlockedFetch req $ ResultVar $ \result isChildThread -> do
-        when (isLeft result) $ atomicModifyIORef' ref (\r -> (r+1,()))
+        let addFailures r = (r <> calcFailure u req result, ())
+        when (isLeft result) $ atomicModifyIORef' ref addFailures
         fn result isChildThread
 
 wrapFetchInTrace

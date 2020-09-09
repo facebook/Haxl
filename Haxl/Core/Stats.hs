@@ -134,6 +134,7 @@ data FetchStats
     , fetchDuration :: {-# UNPACK #-} !Microseconds
     , fetchSpace :: {-# UNPACK #-} !Int64
     , fetchFailures :: {-# UNPACK #-} !Int
+    , fetchIgnoredFailures :: {-# UNPACK #-} !Int
     , fetchBatchId :: {-# UNPACK #-} !Int
     , fetchIds :: [CallId]
     }
@@ -197,6 +198,7 @@ instance ToJSON FetchStats where
     , "duration" .= fetchDuration
     , "allocation" .= fetchSpace
     , "failures" .= fetchFailures
+    , "ignoredFailures" .= fetchIgnoredFailures
     , "batchid" .= fetchBatchId
     , "fetchids" .= fetchIds
     ]

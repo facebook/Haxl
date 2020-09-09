@@ -79,6 +79,7 @@ module Haxl.Core (
   , PerformFetch(..)
   , StateKey(..)
   , SchedulerHint(..)
+  , FailureClassification(..)
 
     -- ** Result variables
   , ResultVar(..)
