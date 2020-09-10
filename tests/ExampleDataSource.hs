@@ -31,6 +31,7 @@ import Haxl.Core
 import Data.Typeable
 import Data.Hashable
 import Control.Concurrent
+import qualified Control.Exception as E
 import System.IO
 
 -- Here is an example minimal data source.  Our data source will have
@@ -95,6 +96,11 @@ instance DataSource u ExampleReq where
   -- I'll define exampleFetch below
   fetch = exampleFetch
 
+  -- we don't want to treat NotFound as an exception for stats purposes
+  classifyFailure _ _ e
+    | Just NotFound{} <- E.fromException e = IgnoredForStatsFailure
+    | otherwise = StandardFailure
+
 
 -- Every data source should define a function 'initGlobalState' that
 -- initialises the state for that data source.  The arguments to this
@@ -144,6 +150,8 @@ fetch1 (BlockedFetch (CountAardvarks "BANG2") m) = do
 fetch1 (BlockedFetch (CountAardvarks "BANG3") _) = do
   hPutStr stderr "BANG3"
   killThread =<< myThreadId -- an asynchronous exception
+fetch1 (BlockedFetch (CountAardvarks "BANG4") r) = do
+  putFailure r $ NotFound "BANG4"
 fetch1 (BlockedFetch (CountAardvarks str) m) =
   putSuccess m (length (filter (== 'a') str))
 fetch1 (BlockedFetch (ListWombats a) r) =

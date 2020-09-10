@@ -27,6 +27,7 @@ module Haxl.Core.DataSource
   , BlockedFetch(..)
   , PerformFetch(..)
   , SchedulerHint(..)
+  , FailureClassification(..)
 
   -- * Result variables
   , ResultVar(..)
@@ -103,6 +104,9 @@ class (DataSourceName req, StateKey req, ShowP req) => DataSource u req where
   schedulerHint :: u -> SchedulerHint req
   schedulerHint _ = TryToBatch
 
+  classifyFailure :: u -> req a -> SomeException -> FailureClassification
+  classifyFailure _ _ _ = StandardFailure
+
 class DataSourceName (req :: * -> *) where
   -- | The name of this 'DataSource', used in tracing and stats. Must
   -- take a dummy request.
@@ -133,6 +137,11 @@ data SchedulerHint (req :: * -> *)
     -- batch multiple requests.  This is really only useful if the data source
     -- returns BackgroundFetch, otherwise requests to this data source will
     -- be performed synchronously, one at a time.
+
+-- | Hints to the stats module about how to deal with these failures
+data FailureClassification
+  = StandardFailure
+  | IgnoredForStatsFailure
 
 -- | A data source can fetch data in one of four ways.
 --

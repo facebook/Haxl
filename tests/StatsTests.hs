@@ -6,6 +6,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module StatsTests (tests) where
 
@@ -16,7 +17,6 @@ import Data.Maybe
 import Haxl.Prelude
 import Haxl.Core
 import Prelude()
-
 
 import ExampleDataSource
 import SleepDataSource
@@ -35,6 +35,7 @@ aggregateBatches = TestCase $ do
                                   , fetchDuration = 10
                                   , fetchSpace = 1
                                   , fetchFailures = 2
+                                  , fetchIgnoredFailures = 0
                                   , fetchBatchId = n
                                   , fetchIds = [1,2] }
                                   | n <- reverse [1..10] ++ [11..20] ]
@@ -45,6 +46,7 @@ aggregateBatches = TestCase $ do
                               , fetchDuration = 1000 * n
                               , fetchSpace = 3
                               , fetchFailures = if n <= 3 then 1 else 0
+                              , fetchIgnoredFailures = 0
                               , fetchBatchId = 123
                               , fetchIds = [fromIntegral n] } | n <- [1..50] ]
     agg (sz,bids) FetchStats{..} = (sz + fetchBatchSize, fetchBatchId:bids)
@@ -85,12 +87,18 @@ fetchIdsSync = TestCase $ do
        sequence_
        [ void $ countAardvarks "abcabc" + (length <$> listWombats 3)
        , void $ listWombats 100
-       , void $ listWombats 99 ]
+       , void $ listWombats 99
+       , void $ countAardvarks "BANG4" `catch` \NotFound{} -> return 123
+       ]
   -- expect a single DS stat
   (Stats stats) <- readIORef (statsRef env)
   let
     fetchStats = [x | x@FetchStats{} <- stats]
   assertEqual "Only 1 batch" 1 (length fetchStats)
+  let
+    [stat] = fetchStats
+  assertEqual "No real failures" 0 (fetchFailures stat)
+  assertEqual "1 ignored failure" 1 (fetchIgnoredFailures stat)
 
 fetchIdsBackground :: Test
 fetchIdsBackground = TestCase $ do
@@ -169,7 +177,7 @@ ppStatsTest = TestCase $ do
     mc = ppStats (Stats [MemoCall 0 0])
     fc = ppStats (Stats [FetchCall "" [] 0])
     fw = ppStats (Stats [FetchWait HashMap.empty 0 1])
-    fs = ppStats (Stats [FetchStats "" 0 0 0 0 0 0 []])
+    fs = ppStats (Stats [FetchStats "" 0 0 0 0 0 0 0 []])
   assertEqual "empty stats -> empty string" r ""
   assertEqual "memo call stats -> empty string" mc ""
   assertEqual "fetch call stats -> empty string" fc ""
