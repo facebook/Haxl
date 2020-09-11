@@ -39,7 +39,7 @@ module Haxl.Core (
   , memoFingerprint, MemoFingerprintKey(..)
 
     -- ** Conditionals
-  , pAnd, pOr
+  , pAnd, pOr, unsafeChooseFirst
 
     -- ** Statistics
   , Stats(..)
