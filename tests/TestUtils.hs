@@ -16,6 +16,7 @@ module TestUtils
 
 import TestTypes
 import MockTAO
+import Haxl.DataSource.ConcurrentIO
 
 import Data.IORef
 import Data.Aeson
@@ -49,7 +50,8 @@ id4 = lookupInput "D"
 makeTestEnv :: Bool -> IO HaxlEnv
 makeTestEnv future = do
   tao <- MockTAO.initGlobalState future
-  let st = stateSet tao stateEmpty
+  stio <- mkConcurrentIOState
+  let st = stateSet stio $ stateSet tao stateEmpty
   env <- initEnv st testinput
   return env { flags = (flags env) { report = 2 } }
 
