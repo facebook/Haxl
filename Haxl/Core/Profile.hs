@@ -78,16 +78,17 @@ collectProfileData l m env = do
             (profileNextKey p)
             (profileTree p)
           , profileNextKey = profileNextKey p + 1 }, profileNextKey p)
-    runProfileData l key m env
+    runProfileData l key m False env
 {-# INLINE collectProfileData #-}
 
 runProfileData
   :: ProfileLabel
   -> ProfileKey
   -> (Env u w -> IO (Result u w a))
+  -> Bool
   -> Env u w
   -> IO (Result u w a)
-runProfileData l key m env = do
+runProfileData l key m isCont env = do
   a0 <- getAllocationCounter
   let
     nextCurrent = ProfileCurrent
@@ -103,7 +104,7 @@ runProfileData l key m env = do
   -- But this is what we want as we need to account for allocations.
   -- So do not be tempted to pass through prevProfKey (from collectProfileData)
   -- which is the original caller
-  modifyProfileData env key caller (a0 - a1)
+  modifyProfileData env key caller (a0 - a1) (if isCont then 0 else 1)
 
   -- So we do not count the allocation overhead of modifyProfileData
   setAllocationCounter a1
@@ -112,7 +113,7 @@ runProfileData l key m env = do
     Throw e -> return (Throw e)
     Blocked ivar k -> return (Blocked ivar (Cont $ runCont (toHaxl k)))
   where
-    runCont (GenHaxl h) = GenHaxl $ \env -> runProfileData l key h env
+    runCont (GenHaxl h) = GenHaxl $ runProfileData l key h True
 {-# INLINE runProfileData #-}
 
 modifyProfileData
@@ -120,8 +121,9 @@ modifyProfileData
   -> ProfileKey
   -> ProfileKey
   -> AllocCount
+  -> LabelHitCount
   -> IO ()
-modifyProfileData env key caller allocs = do
+modifyProfileData env key caller allocs labelIncrement = do
   modifyIORef' (profRef env) $ \ p ->
     p { profile =
           HashMap.insertWith updEntry key newEntry .
@@ -130,12 +132,12 @@ modifyProfileData env key caller allocs = do
   where newEntry =
           emptyProfileData
             { profileAllocs = allocs
-            , profileLabelHits = 1
+            , profileLabelHits = labelIncrement
             }
         updEntry _ old =
           old
             { profileAllocs = profileAllocs old + allocs
-            , profileLabelHits = profileLabelHits old + 1
+            , profileLabelHits = profileLabelHits old + labelIncrement
             }
         -- subtract allocs from caller, so they are not double counted
         -- we don't know the caller's caller, but it will get set on

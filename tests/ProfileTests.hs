@@ -27,6 +27,7 @@ import Data.Int
 
 import TestUtils
 import WorkDataSource
+import SleepDataSource
 
 mkProfilingEnv = do
   env <- makeTestEnv False
@@ -49,8 +50,10 @@ collectsdata = do
           withLabel "bar" $
             withLabel "foo" $ do
               u <- env userEnv
+              slp <- sum <$> mapM (\x -> withLabel "baz" $ return x) [1..5]
               -- do some non-trivial work that can't be lifted out
-              case fromJSON <$> HashMap.lookup "A" u of
+              -- first sleep though in order to force a Blocked result
+              sleep slp `andThen` case fromJSON <$> HashMap.lookup "A" u of
                 Just (Success n) | sum [n .. 1000::Integer] > 0 -> return 5
                 _otherwise -> return (4::Int)
   profCopy <- readIORef (profRef e)
@@ -61,11 +64,15 @@ collectsdata = do
     getData k = do
       k2 <- HashMap.lookup k labelKeys
       HashMap.lookup k2 profData
-  assertEqual "has data" 3 $ HashMap.size profData
+  assertEqual "has data" 4 $ HashMap.size profData
   assertBool "foo allocates" $
     case profileAllocs <$> getData "foo" of
       Just x -> x > 10000
       Nothing -> False
+  assertEqual "foo is only called once" (Just 1) $
+    profileLabelHits <$> getData "foo"
+  assertEqual "baz is called 5 times" (Just 5) $
+    profileLabelHits <$> getData "baz"
   assertBool "bar does not allocate (much)" $
     case profileAllocs <$> getData "bar" of
       Just n -> n < 5000  -- getAllocationCounter can be off by +/- 4K
