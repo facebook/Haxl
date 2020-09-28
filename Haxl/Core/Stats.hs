@@ -52,7 +52,6 @@ import Data.Maybe (mapMaybe)
 import Data.HashMap.Strict (HashMap)
 import Data.Int
 import Data.List (intercalate, sortOn, groupBy)
-import Data.Semigroup (Semigroup)
 import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
