@@ -8,6 +8,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Types and operations for statistics and profiling.  Most users
@@ -52,6 +53,9 @@ import Data.Maybe (mapMaybe)
 import Data.HashMap.Strict (HashMap)
 import Data.Int
 import Data.List (intercalate, sortOn, groupBy)
+#if __GLASGOW_HASKELL__ < 804
+import Data.Semigroup (Semigroup)
+#endif
 import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
