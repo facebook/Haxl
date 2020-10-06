@@ -267,8 +267,10 @@ data ProfileData = ProfileData
      -- ^ number of hits at this label
   , profileMemos :: [ProfileMemo]
      -- ^ memo and a boolean representing if it was cached at the time
+  , profileTime :: {-# UNPACK #-} !Microseconds
+     -- ^ amount of time spent in computation at this label
   }
   deriving Show
 
 emptyProfileData :: ProfileData
-emptyProfileData = ProfileData 0 [] 0 []
+emptyProfileData = ProfileData 0 [] 0 [] 0

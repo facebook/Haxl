@@ -90,6 +90,7 @@ runProfileData
   -> Env u w
   -> IO (Result u w a)
 runProfileData l key m isCont env = do
+  t0 <- getTimestamp
   a0 <- getAllocationCounter
   let
     nextCurrent = ProfileCurrent
@@ -99,13 +100,14 @@ runProfileData l key m isCont env = do
 
   r <- m env{profCurrent=nextCurrent} -- what if it throws?
   a1 <- getAllocationCounter
+  t1 <- getTimestamp
 
   -- caller might not be the actual caller of this function
   -- for example MAIN may be continuing a function from the middle of the stack.
   -- But this is what we want as we need to account for allocations.
   -- So do not be tempted to pass through prevProfKey (from collectProfileData)
   -- which is the original caller
-  modifyProfileData env key caller (a0 - a1) (if isCont then 0 else 1)
+  modifyProfileData env key caller (a0 - a1) (t1-t0) (if isCont then 0 else 1)
 
   -- So we do not count the allocation overhead of modifyProfileData
   setAllocationCounter a1
@@ -122,9 +124,10 @@ modifyProfileData
   -> ProfileKey
   -> ProfileKey
   -> AllocCount
+  -> Microseconds
   -> LabelHitCount
   -> IO ()
-modifyProfileData env key caller allocs labelIncrement = do
+modifyProfileData env key caller allocs t labelIncrement = do
   modifyIORef' (profRef env) $ \ p ->
     p { profile =
           HashMap.insertWith updEntry key newEntry .
@@ -134,19 +137,25 @@ modifyProfileData env key caller allocs labelIncrement = do
           emptyProfileData
             { profileAllocs = allocs
             , profileLabelHits = labelIncrement
+            , profileTime = t
             }
         updEntry _ old =
           old
             { profileAllocs = profileAllocs old + allocs
             , profileLabelHits = profileLabelHits old + labelIncrement
+            , profileTime = profileTime old + t
             }
-        -- subtract allocs from caller, so they are not double counted
+        -- subtract allocs/time from caller, so they are not double counted
         -- we don't know the caller's caller, but it will get set on
         -- the way back out, so an empty hashset is fine for now
         newCaller =
-          emptyProfileData { profileAllocs = -allocs }
+          emptyProfileData { profileAllocs = -allocs
+                           , profileTime = -t
+                           }
         updCaller _ old =
-          old { profileAllocs = profileAllocs old - allocs }
+          old { profileAllocs = profileAllocs old - allocs
+              , profileTime = profileTime old - t
+              }
 
 
 -- Like collectProfileData, but intended to be run from the scheduler.
@@ -164,13 +173,22 @@ profileCont
   -> Env u w
   -> IO (Result u w a)
 profileCont m env = do
+  t0 <- getTimestamp
   a0 <- getAllocationCounter
   r <- m env
   a1 <- getAllocationCounter
+  t1 <- getTimestamp
   let
     allocs = a0 - a1
-    newEntry = emptyProfileData { profileAllocs = allocs }
-    updEntry _ old = old { profileAllocs = profileAllocs old + allocs }
+    t = t0 - t1
+    newEntry = emptyProfileData
+      { profileAllocs = allocs
+      , profileTime = t
+      }
+    updEntry _ old = old
+      { profileAllocs = profileAllocs old + allocs
+      , profileTime = profileTime old + t
+      }
     profKey = profCurrentKey (profCurrent env)
   modifyIORef' (profRef env) $ \ p ->
     p { profile =
