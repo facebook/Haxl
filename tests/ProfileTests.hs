@@ -138,26 +138,32 @@ threadAlloc batches = do
     (aggregateFetchBatches length stats)
   -- if we actually do more than 1 batch then the above test is not useful
 
+data MemoType = Global | Local
 
 -- Test that we correctly attribute memo work
-memos:: Assertion
-memos = do
+memos:: MemoType -> Assertion
+memos memoType = do
   env <- mkProfilingEnv
   let
     memoAllocs = 10000000 :: Int64
-    doWorkMemo = memo (1 :: Int) $ unsafeLiftIO $ do
+    doWork = unsafeLiftIO $ do
       a0 <- getAllocationCounter
       setAllocationCounter $ a0 - memoAllocs
       return (5 :: Int)
-  _ <- runHaxl env $ andThen
-    (withLabel "do" doWorkMemo)
-    (withLabel "cached" doWorkMemo)
+    mkWork
+      | Global <- memoType = return (memo (1 :: Int) doWork)
+      | Local <- memoType = memoize doWork
+  _ <- runHaxl env $ do
+    work <- mkWork
+    andThen
+      (withLabel "do" work)
+      (withLabel "cached" work)
   profData <- labelToDataMap <$> readIORef (profRef env)
   case HashMap.lookup "do" profData of
     Nothing -> assertFailure "do not in data"
     Just ProfileData{..} -> do
       assertEqual "has correct memo id" profileMemos [ProfileMemo 1 False]
-      assertBool "allocs are included in 'do'" (profileAllocs > memoAllocs)
+      assertBool "allocs are included in 'do'" (profileAllocs >= memoAllocs)
   case HashMap.lookup "cached" profData of
     Nothing -> assertFailure "cached not in data"
     Just ProfileData{..} -> do
@@ -177,5 +183,6 @@ tests = TestList
   , TestLabel "exceptions" $ TestCase exceptions
   , TestLabel "threads" $ TestCase (threadAlloc 1)
   , TestLabel "threads with batch" $ TestCase (threadAlloc 50)
-  , TestLabel "memos" $ TestCase memos
+  , TestLabel "memos - Global" $ TestCase (memos Global)
+  , TestLabel "memos - Local" $ TestCase (memos Local)
   ]
