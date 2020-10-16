@@ -121,8 +121,8 @@ newtype MemoVar u w a = MemoVar (IORef (MemoStatus u w a))
 
 data MemoStatus u w a
   = MemoEmpty
-  | MemoReady (GenHaxl u w a)
-  | MemoRun {-# UNPACK #-} !(IVar u w a)
+  | MemoReady (GenHaxl u w a) CallId
+  | MemoRun {-# UNPACK #-} !(IVar u w a) {-# UNPACK #-} !CallId
 
 -- | Create a new @MemoVar@ for storing a memoized computation. The created
 -- @MemoVar@ is initially empty, not tied to any specific computation. Running
@@ -136,7 +136,10 @@ newMemo = unsafeLiftIO $ MemoVar <$> newIORef MemoEmpty
 -- the supplied computation. A @MemoVar@ must be prepared before it is run.
 prepareMemo :: MemoVar u w a -> GenHaxl u w a -> GenHaxl u w ()
 prepareMemo (MemoVar memoRef) memoCmp
-  = unsafeLiftIO $ writeIORef memoRef (MemoReady memoCmp)
+  = GenHaxl $ \env -> do
+      k <- nextCallId env
+      writeIORef memoRef (MemoReady memoCmp k)
+      return (Done ())
 
 -- | Convenience function, combines @newMemo@ and @prepareMemo@.
 newMemoWith :: GenHaxl u w a -> GenHaxl u w (MemoVar u w a)
@@ -201,12 +204,15 @@ runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
     MemoEmpty -> trace_ "MemoEmpty " $
       raise $ CriticalError "Attempting to run empty memo."
     -- Memo has been prepared but not run yet
-    MemoReady cont -> trace_ "MemoReady" $ do
+    MemoReady cont k -> trace_ "MemoReady" $ do
       ivar <- newIVar
-      writeIORef memoRef (MemoRun ivar)
-      execMemoNow env cont ivar
+      writeIORef memoRef (MemoRun ivar k)
+      execMemoNowProfiled env cont ivar k
     -- The memo has already been run, get (or wait for) for the result
-    MemoRun ivar -> trace_ "MemoRun" $ unHaxl (getIVarWithWrites ivar) env
+    MemoRun ivar k -> trace_ "MemoRun" $ do
+      ifProfiling (flags env) $ do
+        incrementMemoHitCounterFor env k True
+      unHaxl (getIVarWithWrites ivar) env
 
 execMemoNowProfiled
   :: Env u w
