@@ -180,7 +180,7 @@ profileCont m env = do
   t1 <- getTimestamp
   let
     allocs = a0 - a1
-    t = t0 - t1
+    t = t1 - t0
     newEntry = emptyProfileData
       { profileAllocs = allocs
       , profileTime = t
