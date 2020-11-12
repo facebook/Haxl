@@ -87,6 +87,24 @@ collectsdata = do
   assertEqual "foo's parent is bar" (Just (head fooParents)) $
     HashMap.lookup ("bar", 0) (profileTree profCopy)
 
+
+collectsLazyData :: Assertion
+collectsLazyData = do
+  e <- mkProfilingEnv
+  _x <- runHaxl e $ withLabel "bar" $ do
+          u <- env userEnv
+          withLabel "foo" $ do
+             let start = if HashMap.member "A" u
+                         then 10
+                         else 1
+             return $ sum [start..10000::Integer]
+  profCopy <- readIORef (profRef e)
+  -- check the allocations are attributed to foo
+  assertBool "foo has allocations" $
+    case profileAllocs <$> HashMap.lookup "foo" (labelToDataMap profCopy) of
+      Just x -> x > 10000
+      Nothing -> False
+
 exceptions :: Assertion
 exceptions = do
   env <- mkProfilingEnv
@@ -180,6 +198,7 @@ memos memoType = do
 
 tests = TestList
   [ TestLabel "collectsdata" $ TestCase collectsdata
+  , TestLabel "collectsdata - lazy" $ TestCase collectsLazyData
   , TestLabel "exceptions" $ TestCase exceptions
   , TestLabel "threads" $ TestCase (threadAlloc 1)
   , TestLabel "threads with batch" $ TestCase (threadAlloc 50)

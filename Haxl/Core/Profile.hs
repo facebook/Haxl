@@ -4,6 +4,7 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -97,8 +98,17 @@ runProfileData l key m isCont env = do
                   { profCurrentKey = key
                   , profCurrentLabel = l }
     caller = profCurrentKey (profCurrent env)
+    runCont (GenHaxl h) = GenHaxl $ runProfileData l key h True
 
   r <- m env{profCurrent=nextCurrent} -- what if it throws?
+
+  -- Make the result strict in Done/Throw so that if the user code
+  -- returns (force a), the force is evaluated *inside* the profile.
+  result <- case r of
+    Done !a -> return (Done a)
+    Throw !e -> return (Throw e)
+    Blocked ivar k -> return (Blocked ivar (Cont $ runCont (toHaxl k)))
+
   a1 <- getAllocationCounter
   t1 <- getTimestamp
 
@@ -111,12 +121,7 @@ runProfileData l key m isCont env = do
 
   -- So we do not count the allocation overhead of modifyProfileData
   setAllocationCounter a1
-  case r of
-    Done a -> return (Done a)
-    Throw e -> return (Throw e)
-    Blocked ivar k -> return (Blocked ivar (Cont $ runCont (toHaxl k)))
-  where
-    runCont (GenHaxl h) = GenHaxl $ runProfileData l key h True
+  return result
 {-# INLINE runProfileData #-}
 
 modifyProfileData
