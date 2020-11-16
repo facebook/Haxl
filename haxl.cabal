@@ -148,6 +148,7 @@ test-suite test
     TestUtils
     WorkDataSource
     WriteTests
+    DataSourceDispatchTests
 
   type:
     exitcode-stdio-1.0

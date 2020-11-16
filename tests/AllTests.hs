@@ -21,6 +21,7 @@ import FullyAsyncTest
 import WriteTests
 import ParallelTests
 import StatsTests
+import DataSourceDispatchTests
 
 import Test.HUnit
 
@@ -41,4 +42,5 @@ allTests = TestList
   , TestLabel "WriteTest" WriteTests.tests
   , TestLabel "ParallelTest" ParallelTests.tests
   , TestLabel "StatsTests" StatsTests.tests
+  , TestLabel "DataSourceDispatchTests" DataSourceDispatchTests.tests
   ]
