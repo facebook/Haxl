@@ -13,11 +13,9 @@ import Prelude()
 
 import Haxl.Core
 import Haxl.DataSource.ConcurrentIO
-import Haxl.Core.RequestStore (getMapFromRCMap)
 
 import Data.IORef
 import qualified Data.Map as Map
-import Data.Proxy (Proxy(..))
 import Data.Typeable
 import Test.HUnit
 import System.Timeout
