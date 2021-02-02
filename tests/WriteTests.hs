@@ -10,7 +10,9 @@ module WriteTests (tests) where
 import Test.HUnit
 
 import Data.Foldable
+import Data.IORef
 
+import Haxl.Core.Monad (flattenWT)
 import Haxl.Core
 import Haxl.Prelude as Haxl
 
@@ -124,6 +126,19 @@ writeSoundness = TestCase $ do
       [SimpleWrite "inner not memo"]
   assertBool "Write Soundness 12" $ memoRes == replicate numReps 0
 
+writeLogsCorrectnessTest :: Test
+writeLogsCorrectnessTest = TestLabel "writeLogs_correctness" $ TestCase $ do
+  e <- emptyEnv ()
+  (_ , wrts) <- runHaxlWithWrites e doNonMemoWrites
+  assertEqual "Expected writes" [SimpleWrite "inner",
+    SimpleWrite "inner not memo"] wrts
+  wrtsNoMemo <- readIORef $ writeLogsRefNoMemo e
+  wrtsMemo <- readIORef $ writeLogsRef e
+  assertEqual "WriteTree not empty" [] $ flattenWT wrtsNoMemo
+  assertEqual "WriteTree not empty" [] $ flattenWT wrtsMemo
 
 
-tests = TestList [TestLabel "Write Soundness" writeSoundness]
+tests = TestList
+  [ TestLabel "Write Soundness" writeSoundness,
+    TestLabel "writeLogs_correctness" writeLogsCorrectnessTest
+  ]

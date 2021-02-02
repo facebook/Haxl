@@ -237,10 +237,12 @@ runHaxlWithWrites env@Env{..} haxl = do
   --
   schedule env JobNil haxl result
   r <- readIORef resultRef
+  writeIORef writeLogsRef NilWrites
+  wtNoMemo <- atomicModifyIORef' writeLogsRefNoMemo
+    (\old_wrts -> (NilWrites , old_wrts))
   case r of
     IVarEmpty _ -> throwIO (CriticalError "runHaxl: missing result")
     IVarFull (Ok a wt) -> do
-      wtNoMemo <- readIORef writeLogsRefNoMemo
       return (a, flattenWT (wt `appendWTs` wtNoMemo))
     IVarFull (ThrowHaxl e _wt)  -> throwIO e
       -- The written logs are discarded when there's a Haxl exception. We
