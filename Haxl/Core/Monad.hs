@@ -48,6 +48,7 @@ module Haxl.Core.Monad
   , flattenWT
   , appendWTs
   , mbModifyWLRef
+  , mapWrites
 
     -- * Cont
   , Cont(..)
@@ -379,6 +380,12 @@ flattenWT = go []
 mbModifyWLRef :: WriteTree w -> IORef (WriteTree w) -> IO ()
 mbModifyWLRef NilWrites _ = return ()
 mbModifyWLRef !wt ref = modifyIORef' ref (`appendWTs` wt)
+
+mapWriteTree :: (w -> w) -> WriteTree w -> WriteTree w
+mapWriteTree _ NilWrites = NilWrites
+mapWriteTree f (SomeWrite w) = SomeWrite (f w)
+mapWriteTree f (MergeWrites wt1 wt2) =
+  MergeWrites (mapWriteTree f wt1) (mapWriteTree f wt2)
 
 -- -----------------------------------------------------------------------------
 -- | The Haxl monad, which does several things:
@@ -873,6 +880,36 @@ withEnv newEnv (GenHaxl m) = GenHaxl $ \_env -> do
 
 nextCallId :: Env u w -> IO CallId
 nextCallId env = atomicModifyIORef' (callIdRef env) $ \x -> (x+1,x+1)
+
+-- | Runs the Haxl computation, transforming the writes within using the
+-- provided function.
+--
+-- Memoization behavior is unchanged, meaning if a memoized computation is run
+-- once inside @mapWrites@ and then once without, the writes from the second run
+-- will NOT be transformed.
+mapWrites :: (w -> w) -> GenHaxl u w a -> GenHaxl u w a
+mapWrites f action = GenHaxl $ \curEnv -> do
+  wlogs <- newIORef NilWrites
+  wlogsNoMemo <- newIORef NilWrites
+  let
+    !newEnv = curEnv { writeLogsRef = wlogs, writeLogsRefNoMemo = wlogsNoMemo }
+  unHaxl (mapWritesImpl curEnv newEnv action) newEnv
+  where
+    mapWritesImpl oldEnv curEnv (GenHaxl m) = GenHaxl $ \_ -> do
+      let
+        pushTransformedWrites = do
+          wt <- readIORef $ writeLogsRef curEnv
+          mbModifyWLRef (mapWriteTree f wt) (writeLogsRef oldEnv)
+          wtNoMemo <- readIORef $ writeLogsRefNoMemo curEnv
+          mbModifyWLRef (mapWriteTree f wtNoMemo) (writeLogsRefNoMemo oldEnv)
+
+      r <- m curEnv
+
+      case r of
+        Done a -> pushTransformedWrites >> return (Done a)
+        Throw e -> pushTransformedWrites >> return (Throw e)
+        Blocked ivar k -> return
+          (Blocked ivar (Cont (mapWritesImpl oldEnv curEnv (toHaxl k))))
 
 #ifdef PROFILING
 -- -----------------------------------------------------------------------------
