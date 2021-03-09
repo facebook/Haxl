@@ -5,6 +5,10 @@
 -- found in the LICENSE file.
 
 {-# LANGUAGE StandaloneDeriving, GADTs, DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 module DataCacheTest (tests, newResult, takeResult) where
 
 import Haxl.Core.DataCache as DataCache
@@ -18,6 +22,8 @@ import Data.Typeable
 import Prelude hiding (mapM)
 import Test.HUnit
 import Data.IORef
+import Data.Text
+import Unsafe.Coerce
 
 data TestReq a where
    Req :: Int -> TestReq a -- polymorphic result
@@ -28,6 +34,17 @@ deriving instance Show (TestReq a)
 
 instance Hashable (TestReq a) where
   hashWithSalt salt (Req i) = hashWithSalt salt i
+
+instance DataSource u TestReq where
+  fetch = error "no fetch defined"
+
+instance DataSourceName TestReq where
+  dataSourceName _ = pack "TestReq"
+
+instance StateKey TestReq where
+  data State TestReq = TestReqState
+
+instance ShowP TestReq where showp = show
 
 newResult :: a -> IO (IVar u w a)
 newResult a = IVar <$> newIORef (IVarFull (Ok a NilWrites))
@@ -85,5 +102,40 @@ dcStrictnessTest = TestLabel "DataCache strictness" $ TestCase $ do
       Left (ErrorCall "BOOM") -> True
       _other -> False
 
+dcFallbackTest :: Test
+dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
+  env <- addLookup <$> initEnv (stateSet TestReqState stateEmpty) ()
+  r <- runHaxl env (dataFetch req)
+  assertEqual "dcFallbackTest found" 1 r
+  rbad <- Control.Exception.try $ runHaxl env (dataFetch reqBad)
+  assertBool "dcFallbackTest not found" $
+    case rbad of
+      Left (ErrorCall "no fetch defined") -> True
+      _ -> False
+  where
+    addLookup e = e { dataCacheFetchFallback = Just (DataCacheLookup lookup) }
+    lookup
+      :: forall req a . Typeable (req a)
+      => req a
+      -> IO (Maybe (ResultVal a ()))
+    lookup r
+      | typeOf r == typeRep (Proxy :: Proxy (TestReq Int)) =
+        -- have to coerce on the way out as results are not Typeable
+        -- so you better be sure you do it right!
+        return $ unsafeCoerce . doReq <$> cast r
+      | otherwise = return Nothing
+
+    doReq :: TestReq Int -> ResultVal Int ()
+    doReq (Req r) = Ok r NilWrites
+
+    req :: TestReq Int
+    req = Req 1
+
+    reqBad :: TestReq String
+    reqBad = Req 2
+
 -- tests :: Assertion
-tests = TestList [dcSoundnessTest, dcStrictnessTest]
+tests = TestList [ dcSoundnessTest
+                 , dcStrictnessTest
+                 , dcFallbackTest
+                 ]
