@@ -51,7 +51,12 @@ instance DataSource u SimpleDataSource where
       threadDelay 1000 >> putSuccess m 37
 
 newtype SimpleWrite = SimpleWrite Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
+
+assertEqualIgnoreOrder ::
+  (Eq a, Show a, Ord a) => String -> [a] -> [a] -> Assertion
+assertEqualIgnoreOrder msg lhs rhs =
+  assertEqual msg (sort lhs) (sort rhs)
 
 doInnerWrite :: GenHaxl u SimpleWrite Int
 doInnerWrite = do
@@ -164,12 +169,12 @@ writeLogsCorrectnessTest :: Test
 writeLogsCorrectnessTest = TestLabel "writeLogs_correctness" $ TestCase $ do
   e <- emptyEnv ()
   (_ , wrts) <- runHaxlWithWrites e doNonMemoWrites
-  assertEqual "Expected writes" [SimpleWrite "inner",
+  assertEqualIgnoreOrder "Expected writes" [SimpleWrite "inner",
     SimpleWrite "inner not memo"] wrts
   wrtsNoMemo <- readIORef $ writeLogsRefNoMemo e
   wrtsMemo <- readIORef $ writeLogsRef e
-  assertEqual "WriteTree not empty" [] $ flattenWT wrtsNoMemo
-  assertEqual "WriteTree not empty" [] $ flattenWT wrtsMemo
+  assertEqualIgnoreOrder "WriteTree not empty" [] $ flattenWT wrtsNoMemo
+  assertEqualIgnoreOrder "WriteTree not empty" [] $ flattenWT wrtsMemo
 
 mapWritesTest :: Test
 mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
@@ -177,7 +182,7 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
   env0 <- emptyEnv ()
   (res0, wrts0) <- runHaxlWithWrites env0 $ mapWrites func doNonMemoWrites
   assertEqual "Expected computation result" 0 res0
-  assertEqual "Writes correctly transformed" [SimpleWrite "INNER",
+  assertEqualIgnoreOrder "Writes correctly transformed" [SimpleWrite "INNER",
     SimpleWrite "INNER NOT MEMO"] wrts0
 
   -- Writes should behave the same inside and outside mapWrites
@@ -187,7 +192,8 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
     outerMapped <- mapWrites func doOuterWrite
     return $ outer == outerMapped
   assertBool "Results are identical" res1
-  assertEqual "Writes correctly transformed, non-transformed writes preserved"
+  assertEqualIgnoreOrder
+    "Writes correctly transformed, non-transformed writes preserved"
     [ SimpleWrite "outer1", SimpleWrite "inner"
     , SimpleWrite "inner", SimpleWrite "outer2"
     , SimpleWrite "OUTER1", SimpleWrite "INNER"
@@ -204,7 +210,8 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
     _ <- doWriteMemo
     return ()
   -- "inner not memo" should appear only once
-  assertEqual "Write correctly transformed under memoization"
+  assertEqualIgnoreOrder
+    "Write correctly transformed under memoization"
     [ SimpleWrite "INNER"
     , SimpleWrite "inner"
     , SimpleWrite "INNER NOT MEMO"
@@ -220,7 +227,8 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
     _ <- mapWrites func doWriteMemo
     return ()
   -- "inner not memo" should appear only once
-  assertEqual "Flipped: Write correctly transformed under memoization"
+  assertEqualIgnoreOrder
+    "Flipped: Write correctly transformed under memoization"
     [ SimpleWrite "inner"
     , SimpleWrite "INNER"
     , SimpleWrite "inner not memo"
@@ -232,7 +240,7 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
   (res4, wrts4) <- runHaxlWithWrites env4 $
     mapWrites func (return (0 :: Int))
   assertEqual "No Writes: Expected computation result" 0 res4
-  assertEqual "No writes" [] wrts4
+  assertEqualIgnoreOrder "No writes" [] wrts4
 
   -- inner computation throws an exception
   env5 <- emptyEnv ()
@@ -242,8 +250,12 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
     return 0
   assertBool "Throw: Expected Computation Result" $ isLeft
     (res5 :: Either HaxlException Int)
-  assertEqual "Datasource writes correctly transformed" [SimpleWrite "INNER",
-    SimpleWrite "INNER NOT MEMO"] wrts5
+  assertEqualIgnoreOrder
+    "Datasource writes correctly transformed"
+    [ SimpleWrite "INNER"
+    , SimpleWrite "INNER NOT MEMO"
+    ]
+    wrts5
 
   -- inner computation calls a datasource
   env6 <- initEnv (stateSet DSState stateEmpty) ()
@@ -252,8 +264,12 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
     dataFetch GetNumber
 
   assertEqual "Datasource: Expected Computation Result" 37 res6
-  assertEqual "Datasource writes correctly transformed" [SimpleWrite "INNER",
-    SimpleWrite "INNER NOT MEMO"] wrts6
+  assertEqualIgnoreOrder
+    "Datasource writes correctly transformed"
+    [ SimpleWrite "INNER"
+    , SimpleWrite "INNER NOT MEMO"
+    ]
+    wrts6
 
   -- inner computation calls a datasource, flipped calls
   env7 <- initEnv (stateSet DSState stateEmpty) ()
@@ -263,7 +279,8 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
     return df
 
   assertEqual "Flipped Datasource: Expected Computation Result" 37 res7
-  assertEqual "Flipped: Datasource writes correctly transformed"
+  assertEqualIgnoreOrder
+    "Flipped: Datasource writes correctly transformed"
     [ SimpleWrite "INNER"
     , SimpleWrite "INNER NOT MEMO"
     ]
