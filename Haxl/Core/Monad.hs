@@ -76,6 +76,8 @@ module Haxl.Core.Monad
     -- * Env
   , Env(..)
   , DataCacheItem(..)
+  , DataCacheLookup(..)
+  , HaxlDataCache
   , Caches
   , caches
   , initEnvWithData
@@ -142,6 +144,7 @@ import Data.Either (rights)
 #if __GLASGOW_HASKELL__ < 804
 import Data.Semigroup
 #endif
+import Data.Typeable
 import GHC.Exts (IsString(..))
 import Text.PrettyPrint hiding ((<>))
 import Text.Printf
@@ -153,7 +156,6 @@ import Debug.Trace (traceEventIO)
 #ifdef PROFILING
 import qualified Data.Map as Map
 import Data.Text (Text)
-import Data.Typeable
 import Foreign.Ptr (Ptr)
 import GHC.Stack
 import Haxl.Core.CallGraph
@@ -165,12 +167,18 @@ import Haxl.Core.CallGraph
 -- | The data we carry around in the Haxl monad.
 
 data DataCacheItem u w a = DataCacheItem (IVar u w a) {-# UNPACK #-} !CallId
+type HaxlDataCache u w = DataCache (DataCacheItem u w)
+newtype DataCacheLookup w =
+  DataCacheLookup
+    (forall req a . Typeable (req a)
+    => req a
+    -> IO (Maybe (ResultVal a w)))
 
 data Env u w = Env
-  { dataCache     :: {-# UNPACK #-} !(DataCache (DataCacheItem u w))
+  { dataCache     :: {-# UNPACK #-} !(HaxlDataCache u w)
       -- ^ cached data fetches
 
-  , memoCache      :: {-# UNPACK #-} !(DataCache (DataCacheItem u w))
+  , memoCache      :: {-# UNPACK #-} !(HaxlDataCache u w)
       -- ^ memoized computations
 
   , memoKey    :: {-# UNPACK #-} !CallId
@@ -234,6 +242,11 @@ data Env u w = Env
        -- ^ This is just a specialized version of @writeLogsRef@, where we put
        -- logs that user doesn't want memoized. This is a better alternative to
        -- doing arbitrary IO from a (memoized) Haxl computation.
+
+  , dataCacheFetchFallback :: !(Maybe (DataCacheLookup w))
+       -- ^ Allows you to inject a DataCache lookup just before a dataFetch is
+       -- dispatched. This is useful for injecting fetch results in testing.
+
 #ifdef PROFILING
   , callGraphRef ::  Maybe (IORef CallGraph)
        -- ^ An edge list representing the current function call graph. The type
@@ -249,12 +262,12 @@ data ProfileCurrent = ProfileCurrent
   , profCurrentLabel :: {-# UNPACK #-} !ProfileLabel
   }
 
-type Caches u w = (DataCache (DataCacheItem u w), DataCache (DataCacheItem u w))
+type Caches u w = (HaxlDataCache u w, HaxlDataCache u w)
 
 caches :: Env u w -> Caches u w
 caches env = (dataCache env, memoCache env)
 
-getMaxCallId :: DataCache (DataCacheItem u w) -> IO (Maybe Int)
+getMaxCallId :: HaxlDataCache u w -> IO (Maybe Int)
 getMaxCallId c = do
   callIds  <- rights . concatMap snd <$>
               DataCache.readCache c (\(DataCacheItem _ i) -> return i)
@@ -298,6 +311,7 @@ initEnvWithData states e (dcache, mcache) = do
     , completions = comps
     , writeLogsRef = wl
     , writeLogsRefNoMemo = wlnm
+    , dataCacheFetchFallback = Nothing
 #ifdef PROFILING
     , callGraphRef = Nothing
     , currFunction = mainFunction

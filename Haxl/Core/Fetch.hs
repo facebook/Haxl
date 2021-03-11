@@ -212,17 +212,30 @@ dataFetchWithInsert showFn insertFn req =
       -- Check whether the data source wants to submit requests
       -- eagerly, or batch them up.
       --
-      let blockedFetch = BlockedFetch req rvar
-      let blockedFetchI = BlockedFetchInternal fid
-      case schedulerHint userEnv :: SchedulerHint r of
-        SubmitImmediately ->
-          performFetches env [BlockedFetches [blockedFetch] [blockedFetchI]]
-        TryToBatch ->
-          -- add the request to the RequestStore and continue
-          modifyIORef' reqStoreRef $ \bs ->
-            addRequest blockedFetch blockedFetchI bs
-      --
-      return $ Blocked ivar (Return ivar)
+      let
+        blockedFetch = BlockedFetch req rvar
+        blockedFetchI = BlockedFetchInternal fid
+        submitFetch = do
+          case schedulerHint userEnv :: SchedulerHint r of
+            SubmitImmediately ->
+              performFetches env [BlockedFetches [blockedFetch] [blockedFetchI]]
+            TryToBatch ->
+              -- add the request to the RequestStore and continue
+              modifyIORef' reqStoreRef $ \bs ->
+                addRequest blockedFetch blockedFetchI bs
+          return $ Blocked ivar (Return ivar)
+
+      -- if there is a fallback configured try that,
+      -- else dispatch the fetch
+      case dataCacheFetchFallback of
+        Nothing -> submitFetch
+        Just (DataCacheLookup dcl) -> do
+          mbFallbackRes <- dcl req
+          case mbFallbackRes of
+            Nothing -> submitFetch
+            Just fallbackRes -> do
+              putIVar ivar fallbackRes env
+              done fallbackRes
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
