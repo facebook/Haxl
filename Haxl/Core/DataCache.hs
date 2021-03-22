@@ -50,7 +50,7 @@ newtype DataCache res = DataCache (HashTable TypeRep (SubCache res))
 -- 'Hashable' and 'Eq' once per request type.
 --
 data SubCache res =
-  forall req a . (Hashable (req a), Eq (req a), Typeable (req a)) =>
+  forall req a . (Hashable (req a), Eq (req a)) =>
        SubCache (req a -> String) (a -> String) ! (HashTable (req a) (res a))
        -- NB. the inner HashMap is strict, to avoid building up
        -- a chain of thunks during repeated insertions.
