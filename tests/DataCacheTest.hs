@@ -106,6 +106,9 @@ dcFallbackTest :: Test
 dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
   env <- addLookup <$> initEnv (stateSet TestReqState stateEmpty) ()
   r <- runHaxl env (dataFetch req)
+  (Stats stats) <- readIORef (statsRef env)
+  assertEqual "fallback still has stats" 1
+    (Prelude.length [x | x@FetchStats{} <- stats])
   assertEqual "dcFallbackTest found" 1 r
   rbad <- Control.Exception.try $ runHaxl env (dataFetch reqBad)
   assertBool "dcFallbackTest not found" $
@@ -113,7 +116,9 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
       Left (ErrorCall "no fetch defined") -> True
       _ -> False
   where
-    addLookup e = e { dataCacheFetchFallback = Just (DataCacheLookup lookup) }
+    addLookup e = e { dataCacheFetchFallback = Just (DataCacheLookup lookup)
+                    , flags = (flags e) { report = 4 }
+                    }
     lookup
       :: forall req a . Typeable (req a)
       => req a

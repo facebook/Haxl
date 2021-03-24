@@ -177,6 +177,45 @@ logFetch env showFn req fid = do
 logFetch _ _ _ _ = return ()
 #endif
 
+calcFailure
+  :: forall u req a . DataSource u req
+  => u
+  -> req a
+  -> Either SomeException a
+  -> FailureCount
+calcFailure _u _r Right{} = mempty
+calcFailure u r (Left e) = case classifyFailure u r e of
+  StandardFailure -> mempty { failureCountStandard = 1 }
+  IgnoredForStatsFailure -> mempty { failureCountIgnored = 1 }
+
+addFallbackFetchStats
+  :: forall u w req a . DataSource u req
+  => Env u w
+  -> CallId
+  -> req a
+  -> ResultVal a w
+  -> IO ()
+addFallbackFetchStats Env{..} fid req res = do
+  bid <- atomicModifyIORef' statsBatchIdRef $ \x -> (x+1,x+1)
+  start <- getTimestamp
+  let
+    dsName = dataSourceName (Proxy :: Proxy req)
+    FailureCount{..} = case res of
+      Ok{} -> mempty
+      (ThrowHaxl e _) -> calcFailure userEnv req (Left e)
+      (ThrowIO e) -> calcFailure userEnv req (Left e)
+    this = FetchStats { fetchDataSource = dsName
+                      , fetchBatchSize = 1
+                      , fetchStart = start
+                      , fetchDuration = 0
+                      , fetchSpace = 0
+                      , fetchFailures = failureCountStandard
+                      , fetchIgnoredFailures = failureCountIgnored
+                      , fetchBatchId = bid
+                      , fetchIds = [fid] }
+  atomicModifyIORef' statsRef $ \(Stats fs) -> (Stats (this : fs), ())
+
+
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
 dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u w a
 dataFetch = dataFetchWithInsert show DataCache.insert
@@ -235,6 +274,11 @@ dataFetchWithInsert showFn insertFn req =
             Nothing -> submitFetch
             Just fallbackRes -> do
               putIVar ivar fallbackRes env
+              when (report flags >= 2) $ addFallbackFetchStats
+                env
+                fid
+                req
+                fallbackRes
               done fallbackRes
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
@@ -533,12 +577,6 @@ wrapFetchInStats
       (t0,t,a) <- time io
       postAlloc <- getAllocationCounter
       return (t0,t, fromIntegral $ prevAlloc - postAlloc, a)
-
-    calcFailure _u _r (Right _) = mempty
-    calcFailure u r (Left e) = case classifyFailure u r e of
-      StandardFailure -> mempty { failureCountStandard = 1 }
-      IgnoredForStatsFailure -> mempty { failureCountIgnored = 1 }
-
 
     addTimer
       u
