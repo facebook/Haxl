@@ -353,11 +353,19 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \e@Env{..} -> do
   mbRes <- DataCache.lookup req dataCache
   case mbRes of
     Nothing -> do
-      eitherResult <- Exception.try val
-      case eitherResult of
-        Left e -> rethrowAsyncExceptions e
-        _ -> return ()
-      let result = eitherToResultThrowIO eitherResult
+      let
+        getResult = do
+          eitherResult <- Exception.try val
+          case eitherResult of
+            Left e -> rethrowAsyncExceptions e
+            _ -> return ()
+          return $ eitherToResultThrowIO eitherResult
+      -- if there is a fallback configured try that
+      result <- case dataCacheFetchFallback of
+        Nothing -> getResult
+        Just (DataCacheLookup dcl) -> do
+          mbFallbackRes <- dcl req
+          maybe getResult return mbFallbackRes
       ivar <- newFullIVar result
       k <- nextCallId e
       insertFn req (DataCacheItem ivar k) dataCache

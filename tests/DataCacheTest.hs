@@ -46,6 +46,14 @@ instance StateKey TestReq where
 
 instance ShowP TestReq where showp = show
 
+data CacheableReq x where CacheableInt :: Int -> CacheableReq Int
+  deriving Typeable
+deriving instance Eq (CacheableReq x)
+deriving instance Show (CacheableReq x)
+instance Hashable (CacheableReq x) where
+  hashWithSalt s (CacheableInt val) = hashWithSalt s (0::Int, val)
+
+
 newResult :: a -> IO (IVar u w a)
 newResult a = IVar <$> newIORef (IVarFull (Ok a NilWrites))
 
@@ -105,11 +113,15 @@ dcStrictnessTest = TestLabel "DataCache strictness" $ TestCase $ do
 dcFallbackTest :: Test
 dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
   env <- addLookup <$> initEnv (stateSet TestReqState stateEmpty) ()
-  r <- runHaxl env (dataFetch req)
+  (r,cached) <- runHaxl env (do
+                       a <- dataFetch req
+                       b <- cacheResult (CacheableInt 1234) (return 99999)
+                       return (a,b))
   (Stats stats) <- readIORef (statsRef env)
   assertEqual "fallback still has stats" 1
     (Prelude.length [x | x@FetchStats{} <- stats])
   assertEqual "dcFallbackTest found" 1 r
+  assertEqual "dcFallbackTest cached" 1234 cached
   rbad <- Control.Exception.try $ runHaxl env (dataFetch reqBad)
   assertBool "dcFallbackTest not found" $
     case rbad of
@@ -128,16 +140,22 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
         -- have to coerce on the way out as results are not Typeable
         -- so you better be sure you do it right!
         return $ unsafeCoerce . doReq <$> cast r
+      | typeOf r == typeRep (Proxy :: Proxy (CacheableReq Int)) =
+          return $ unsafeCoerce . doCache <$> cast r
       | otherwise = return Nothing
 
     doReq :: TestReq Int -> ResultVal Int ()
     doReq (Req r) = Ok r NilWrites
+
+    doCache :: CacheableReq Int -> ResultVal Int ()
+    doCache (CacheableInt i) = Ok i NilWrites
 
     req :: TestReq Int
     req = Req 1
 
     reqBad :: TestReq String
     reqBad = Req 2
+
 
 -- tests :: Assertion
 tests = TestList [ dcSoundnessTest
