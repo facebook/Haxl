@@ -215,6 +215,16 @@ addFallbackFetchStats Env{..} fid req res = do
                       , fetchIds = [fid] }
   atomicModifyIORef' statsRef $ \(Stats fs) -> (Stats (this : fs), ())
 
+addFallbackResult
+  :: Env u w
+  -> ResultVal a w
+  -> IVar u w a
+  -> IO ()
+addFallbackResult Env{..} res ivar = do
+  atomicallyOnBlocking
+    (LogicBug (ReadingCompletionsFailedFetch "addFallbackResult")) $ do
+    cs <- readTVar completions
+    writeTVar completions (CompleteReq res ivar 0 : cs)
 
 -- | Performs actual fetching of data for a 'Request' from a 'DataSource'.
 dataFetch :: (DataSource u r, Request r a) => r a -> GenHaxl u w a
@@ -273,13 +283,13 @@ dataFetchWithInsert showFn insertFn req =
           case mbFallbackRes of
             Nothing -> submitFetch
             Just fallbackRes -> do
-              putIVar ivar fallbackRes env
+              addFallbackResult env fallbackRes ivar
               when (report flags >= 2) $ addFallbackFetchStats
                 env
                 fid
                 req
                 fallbackRes
-              done fallbackRes
+              return $ Blocked ivar (Return ivar)
 
     -- Seen before but not fetched yet.  We're blocked, but we don't have
     -- to add the request to the RequestStore.
