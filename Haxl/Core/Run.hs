@@ -195,7 +195,7 @@ runHaxlWithWrites env@Env{..} haxl = do
                     -- pushed on the front of the completions list) and
                     -- therefore overrides it.
                   IVarEmpty cv -> do
-                    writeIORef cr (IVarFull (eitherToResult a))
+                    writeIORef cr (IVarFull a)
                     return cv
           jobs <- mapM getComplete comps
           return (foldr appendJobList JobNil jobs)

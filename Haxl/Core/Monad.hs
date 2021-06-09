@@ -633,7 +633,7 @@ eitherToResult (Left e) = ThrowHaxl e NilWrites
 -- the relevant computations.
 data CompleteReq u w
   = forall a . CompleteReq
-      (Either SomeException a)
+      (ResultVal a w)
       !(IVar u w a)  -- IVar because the result is cached
       {-# UNPACK #-} !Int64 -- see Note [tracking allocation in child threads]
 

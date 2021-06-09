@@ -155,7 +155,7 @@ stdResultVar ivar completions ref flags p =
     atomicallyOnBlocking
       (LogicBug (ReadingCompletionsFailedFetch (dataSourceName p))) $ do
       cs <- readTVar completions
-      writeTVar completions (CompleteReq r ivar allocs : cs)
+      writeTVar completions (CompleteReq (eitherToResult r) ivar allocs : cs)
     -- Decrement the counter as request has finished. Do this after updating the
     -- completions TVar so that if the scheduler is tracking what was being
     -- waited on it gets a consistent view.
