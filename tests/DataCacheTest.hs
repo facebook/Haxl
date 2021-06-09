@@ -16,6 +16,7 @@ import Haxl.Core.Monad
 import Haxl.Core
 
 import Control.Exception
+import Data.Either
 import Data.Hashable
 import Data.Traversable
 import Data.Typeable
@@ -111,30 +112,61 @@ dcStrictnessTest = TestLabel "DataCache strictness" $ TestCase $ do
       _other -> False
 
 dcFallbackTest :: Test
-dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
-  env <- addLookup <$> initEnv (stateSet TestReqState stateEmpty) ()
-  (r,cached) <- runHaxl env (do
-                       a <- dataFetch req
-                       b <- cacheResult (CacheableInt 1234) (return 99999)
-                       return (a,b))
-  (Stats stats) <- readIORef (statsRef env)
-  assertEqual "fallback still has stats" 1
-    (Prelude.length [x | x@FetchStats{} <- stats])
-  assertEqual "dcFallbackTest found" 1 r
-  assertEqual "dcFallbackTest cached" 1234 cached
-  rbad <- Control.Exception.try $ runHaxl env (dataFetch reqBad)
-  assertBool "dcFallbackTest not found" $
-    case rbad of
-      Left (ErrorCall "no fetch defined") -> True
-      _ -> False
+dcFallbackTest = TestLabel "DataCache fallback" $ TestList
+  [ TestLabel "Base" $ TestCase $ do
+      env <- mkEnv
+      (r,cached) <- runHaxl env (do
+                           a <- dataFetch req
+                           b <- cacheResult (CacheableInt 1234) (return 99999)
+                           return (a,b))
+      (Stats stats) <- readIORef (statsRef env)
+      assertEqual "fallback still has stats" 1
+        (Prelude.length [x | x@FetchStats{} <- stats])
+      assertEqual "dcFallbackTest found" 1 r
+      assertEqual "dcFallbackTest cached" 1234 cached
+  , TestLabel "Exception" $ TestCase $ do
+      env <- mkEnv
+      rbad <- Control.Exception.try $ runHaxl env (dataFetch reqBad)
+      assertBool "dcFallbackTest not found" $
+        case rbad of
+          Left (ErrorCall "no fetch defined") -> True
+          _ -> False
+  , TestLabel "Completions" $ TestCase $ do
+      -- check applicative still runs as it would have without a fallback
+      env <- mkEnv
+      let
+        fetchA = dataFetch reqEx
+        fetchB = tellWrite 7 >> dataFetch req
+      (rbad, writes) <- runHaxlWithWrites env $
+        Haxl.Core.try $ (,) <$> fetchA <*> fetchB
+      fetches <- countFetches env
+      assertEqual "dispatched 2 fetches" 2 fetches
+      assertBool "exception propogates" $
+        case rbad of
+          Left (NotFound _) -> True
+          _ -> False
+      assertEqual "write side effects happen" [7] writes
+  ]
   where
+
+    mkEnv = addLookup <$> initEnv (stateSet TestReqState stateEmpty) ()
+
+    countFetches env = do
+      (Stats stats) <- readIORef (statsRef env)
+      let
+        c = sum [ fetchBatchSize x
+                | x@FetchStats{} <- stats
+                ]
+      return c
+
+    addLookup :: Env () Int -> Env () Int
     addLookup e = e { dataCacheFetchFallback = Just (DataCacheLookup lookup)
                     , flags = (flags e) { report = 4 }
                     }
     lookup
       :: forall req a . Typeable (req a)
       => req a
-      -> IO (Maybe (ResultVal a ()))
+      -> IO (Maybe (ResultVal a Int))
     lookup r
       | typeOf r == typeRep (Proxy :: Proxy (TestReq Int)) =
         -- have to coerce on the way out as results are not Typeable
@@ -144,14 +176,18 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestCase $ do
           return $ unsafeCoerce . doCache <$> cast r
       | otherwise = return Nothing
 
-    doReq :: TestReq Int -> ResultVal Int ()
+    doReq :: TestReq Int -> ResultVal Int Int
+    doReq (Req 999) = ThrowHaxl (toException $ NotFound empty) NilWrites
     doReq (Req r) = Ok r NilWrites
 
-    doCache :: CacheableReq Int -> ResultVal Int ()
+    doCache :: CacheableReq Int -> ResultVal Int Int
     doCache (CacheableInt i) = Ok i NilWrites
 
     req :: TestReq Int
     req = Req 1
+
+    reqEx :: TestReq Int
+    reqEx = Req 999
 
     reqBad :: TestReq String
     reqBad = Req 2
