@@ -26,6 +26,7 @@ module Haxl.Core.Profile
 
 import Data.IORef
 import Data.Hashable
+import Data.List.NonEmpty (NonEmpty(..), (<|))
 #if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
 #endif
@@ -65,7 +66,7 @@ collectProfileData
   -> Env u w
   -> IO (Result u w a)
 collectProfileData l m env = do
-  let (ProfileCurrent prevProfKey prevProfLabel) = profCurrent env
+  let ProfileCurrent prevProfKey (prevProfLabel :| _) = profCurrent env
   if prevProfLabel == l
   then
     -- do not add a new label if we are recursing
@@ -94,10 +95,11 @@ runProfileData l key m isCont env = do
   t0 <- getTimestamp
   a0 <- getAllocationCounter
   let
+    ProfileCurrent caller stack = profCurrent env
     nextCurrent = ProfileCurrent
-                  { profCurrentKey = key
-                  , profCurrentLabel = l }
-    caller = profCurrentKey (profCurrent env)
+      { profCurrentKey = key
+      , profLabelStack = l <| stack
+      }
     runCont (GenHaxl h) = GenHaxl $ runProfileData l key h True
 
   r <- m env{profCurrent=nextCurrent} -- what if it throws?

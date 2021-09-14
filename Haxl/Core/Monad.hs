@@ -128,7 +128,6 @@ import Haxl.Core.Util (trace_)
 import Control.Applicative (liftA2)
 import Control.Arrow (left)
 import Control.Concurrent.STM
-import qualified Data.Text as Text
 import qualified Control.Monad.Catch as Catch
 import Control.Exception (Exception(..), SomeException, throwIO)
 #if __GLASGOW_HASKELL__ >= 808
@@ -138,12 +137,14 @@ import qualified Control.Monad as CTL
 import Control.Monad
 #endif
 import qualified Control.Exception as Exception
+import Data.Either (rights)
 import Data.IORef
 import Data.Int
-import Data.Either (rights)
+import Data.List.NonEmpty (NonEmpty(..))
 #if __GLASGOW_HASKELL__ < 804
 import Data.Semigroup
 #endif
+import qualified Data.Text as Text
 import Data.Typeable
 import GHC.Exts (IsString(..))
 import Text.PrettyPrint hiding ((<>))
@@ -259,7 +260,7 @@ data Env u w = Env
 
 data ProfileCurrent = ProfileCurrent
   { profCurrentKey ::  {-# UNPACK #-} !ProfileKey
-  , profCurrentLabel :: {-# UNPACK #-} !ProfileLabel
+  , profLabelStack :: {-# UNPACK #-} !(NonEmpty ProfileLabel)
   }
 
 type Caches u w = (HaxlDataCache u w, HaxlDataCache u w)
@@ -302,7 +303,7 @@ initEnvWithData states e (dcache, mcache) = do
     , states = states
     , statsRef = sref
     , statsBatchIdRef = sbref
-    , profCurrent = ProfileCurrent 0 "MAIN"
+    , profCurrent = ProfileCurrent 0 $ "MAIN" :| []
     , callIdRef = ciref
     , profRef = pref
     , reqStoreRef = rs
