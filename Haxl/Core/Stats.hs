@@ -6,6 +6,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE CPP #-}
@@ -23,6 +24,7 @@ module Haxl.Core.Stats
   , FetchStats(..)
   , Microseconds
   , Timestamp
+  , DataSourceStats(..)
   , getTimestamp
   , emptyStats
   , numFetches
@@ -59,6 +61,7 @@ import Data.Semigroup (Semigroup)
 import Data.Ord (Down(..))
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
+import Data.Typeable
 import Text.Printf
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Text as Text
@@ -78,6 +81,16 @@ getTimestamp = do
 
 -- ---------------------------------------------------------------------------
 -- Stats
+
+data DataSourceStats =
+  forall a. (Typeable a, Show a, Eq a, ToJSON a) => DataSourceStats a
+
+instance Show DataSourceStats where
+  show (DataSourceStats x) = printf "DataSourceStats %s" (show x)
+
+instance Eq DataSourceStats where
+  (==) (DataSourceStats a) (DataSourceStats b) =
+    cast a == Just b
 
 -- | Stats that we collect along the way.
 newtype Stats = Stats [FetchStats]
@@ -101,6 +114,7 @@ ppStats (Stats rss) =
   where
     isFetchStats FetchStats{} = True
     isFetchStats FetchWait{} = True
+    isFetchStats FetchDataSourceStats{} = True
     isFetchStats _ = False
     validFetchStats = filter isFetchStats (reverse rss)
     numDashes = 50
@@ -159,6 +173,12 @@ data FetchStats
     , fetchWaitStart :: {-# UNPACK #-} !Timestamp
     , fetchWaitDuration :: {-# UNPACK #-} !Microseconds
     }
+  | FetchDataSourceStats
+    { fetchDsStatsCallId :: CallId
+    , fetchDsStatsDataSource :: Text
+    , fetchDsStatsStats :: DataSourceStats
+    , fetchBatchId :: {-# UNPACK #-} !Int
+    }
   deriving (Eq, Show)
 
 -- | Pretty-print RoundStats.
@@ -183,6 +203,9 @@ ppFetchStats FetchWait{..}
     msg x = printf "%s (%.2fms)"
                 x
                 (fromIntegral fetchWaitDuration / 1000 :: Double)
+ppFetchStats FetchDataSourceStats{..} =
+  printf "%s (stats): %s" (Text.unpack fetchDsStatsDataSource)
+    (show fetchDsStatsStats)
 
 -- | Aggregate stats merging FetchStats from the same dispatched batch into one.
 aggregateFetchBatches :: ([FetchStats] -> a) -> Stats -> [a]
@@ -220,6 +243,14 @@ instance ToJSON FetchStats where
     [ "type" .= ("FetchWait" :: Text)
     , "duration" .= fetchWaitDuration
     ]
+  toJSON FetchDataSourceStats{..} = object
+    [ "type" .= ("FetchDataSourceStats" :: Text)
+    , "datasource" .= fetchDsStatsDataSource
+    , "stats" .= sjson fetchDsStatsStats
+    , "batchid" .= fetchBatchId
+    ]
+    where
+      sjson (DataSourceStats s) = toJSON s
 
 emptyStats :: Stats
 emptyStats = Stats []
