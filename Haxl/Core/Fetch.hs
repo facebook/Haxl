@@ -111,8 +111,7 @@ cachedWithInsert showFn insertFn env@Env{..} req = do
     doFetch = do
       ivar <- newIVar
       k <- nextCallId env
-      let !rvar = stdResultVar ivar completions submittedReqsRef flags
-            (Proxy :: Proxy r)
+      let !rvar = stdResultVar env ivar (Proxy :: Proxy r)
       insertFn req (DataCacheItem ivar k) dataCache
       return (Uncached rvar ivar k)
   mbRes <- DataCache.lookup req dataCache
@@ -137,14 +136,12 @@ cachedWithInsert showFn insertFn env@Env{..} req = do
 -- completes.
 stdResultVar
   :: forall r a u w. (DataSourceName r, Typeable r)
-  => IVar u w a
-  -> TVar [CompleteReq u w]
-  -> IORef ReqCountMap
-  -> Flags
+  => Env u w
+  -> IVar u w a
   -> Proxy r
   -> ResultVar a
-stdResultVar ivar completions ref flags p =
-  mkResultVar $ \r isChildThread -> do
+stdResultVar Env{..} ivar p =
+  mkResultVar $ \r isChildThread _ -> do
     allocs <- if isChildThread
       then
         -- In a child thread, return the current allocation counter too,
@@ -160,7 +157,7 @@ stdResultVar ivar completions ref flags p =
     -- completions TVar so that if the scheduler is tracking what was being
     -- waited on it gets a consistent view.
     ifReport flags 1 $
-      atomicModifyIORef' ref (\m -> (subFromCountMap p 1 m, ()))
+      atomicModifyIORef' submittedReqsRef (\m -> (subFromCountMap p 1 m, ()))
 {-# INLINE stdResultVar #-}
 
 
@@ -322,13 +319,12 @@ uncachedRequest
  => r a -> GenHaxl u w a
 uncachedRequest req = do
   flg <- env flags
-  subRef <- env submittedReqsRef
   if recording flg /= 0
     then dataFetch req
     else GenHaxl $ \e@Env{..} -> do
       ivar <- newIVar
       k <- nextCallId e
-      let !rvar = stdResultVar ivar completions subRef flg (Proxy :: Proxy r)
+      let !rvar = stdResultVar e ivar (Proxy :: Proxy r)
       modifyIORef' reqStoreRef $ \bs ->
         addRequest (BlockedFetch req rvar) (BlockedFetchInternal k) bs
       return $ Blocked ivar (Return ivar)
@@ -565,7 +561,8 @@ wrapFetchInStats
       SyncFetch $ \reqs -> do
         bid <- newBatchId
         fail_ref <- newIORef mempty
-        (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount u fail_ref) reqs))
+        (t0,t,alloc,_) <- statsForIO (f (map (addFailureCount u fail_ref)
+          (reqsWithFetchDsStats bid reqs)))
         failures <- readIORef fail_ref
         updateFetchStats bid allFids t0 t alloc batchSize failures
     AsyncFetch f -> do
@@ -577,7 +574,8 @@ wrapFetchInStats
               (_,t,alloc,_) <- statsForIO inner
               writeIORef inner_r (t,alloc)
             reqs' = map (addFailureCount u fail_ref) reqs
-        (t0, totalTime, totalAlloc, _) <- statsForIO (f reqs' inner')
+            reqs'' = reqsWithFetchDsStats bid reqs'
+        (t0, totalTime, totalAlloc, _) <- statsForIO (f reqs'' inner')
         (innerTime, innerAlloc) <- readIORef inner_r
         failures <- readIORef fail_ref
         updateFetchStats bid allFids t0 (totalTime - innerTime)
@@ -586,7 +584,8 @@ wrapFetchInStats
       BackgroundFetch $ \reqs -> do
         bid <- newBatchId
         startTime <- getTimestamp
-        io (zipWith (addTimer u bid startTime) reqs reqsI)
+        io (reqsWithFetchDsStats bid
+          (zipWith (addTimer u bid startTime) reqs reqsI))
   where
     allFids = map (\(BlockedFetchInternal k) -> k) reqsI
     newBatchId = atomicModifyIORef' batchIdRef $ \x -> (x+1,x+1)
@@ -595,14 +594,15 @@ wrapFetchInStats
       (t0,t,a) <- time io
       postAlloc <- getAllocationCounter
       return (t0,t, fromIntegral $ prevAlloc - postAlloc, a)
-
+    reqsWithFetchDsStats = \bid reqs
+      -> zipWith (addFetchDatasourceStats bid) reqs reqsI
     addTimer
       u
       bid
       t0
       (BlockedFetch req (ResultVar fn))
       (BlockedFetchInternal fid) =
-        BlockedFetch req $ ResultVar $ \result isChildThread -> do
+        BlockedFetch req $ ResultVar $ \result isChildThread stats -> do
           t1 <- getTimestamp
           -- We cannot measure allocation easily for BackgroundFetch. Here we
           -- just attribute all allocation to the last
@@ -615,7 +615,29 @@ wrapFetchInStats
             (negate allocs)
             1 -- batch size: we don't know if this is a batch or not
             (calcFailure u req result) -- failures
-          fn result isChildThread
+          fn result isChildThread stats
+
+    addFetchDatasourceStats
+      :: Int
+      -> BlockedFetch r
+      -> BlockedFetchInternal
+      -> BlockedFetch r
+    addFetchDatasourceStats bid
+      (BlockedFetch req (ResultVar fn))
+      (BlockedFetchInternal fid) = BlockedFetch req $ ResultVar
+        $ \result isChildThread stats -> do
+          let mkStats dss = FetchDataSourceStats
+                { fetchDsStatsCallId = fid
+                , fetchDsStatsDataSource = dataSource
+                , fetchDsStatsStats = dss
+                , fetchBatchId = bid
+                }
+          case stats of
+            Just dss -> atomicModifyIORef' statsRef
+              $ \(Stats fs) -> (Stats (mkStats dss : fs), ())
+            Nothing -> return ()
+          fn result isChildThread stats
+
 
     updateFetchStats
       :: Int
@@ -641,10 +663,10 @@ wrapFetchInStats
     addFailureCount :: DataSource u r
       => u -> IORef FailureCount -> BlockedFetch r -> BlockedFetch r
     addFailureCount u ref (BlockedFetch req (ResultVar fn)) =
-      BlockedFetch req $ ResultVar $ \result isChildThread -> do
+      BlockedFetch req $ ResultVar $ \result isChildThread stats -> do
         let addFailures r = (r <> calcFailure u req result, ())
         when (isLeft result) $ atomicModifyIORef' ref addFailures
-        fn result isChildThread
+        fn result isChildThread stats
 
 wrapFetchInTrace
   :: Int

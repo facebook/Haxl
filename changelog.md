@@ -1,6 +1,8 @@
 # Changes in version <next>
   * Added fetchBatchId to FetchStats
   * Profiling now tracks full stacks and links each label to memos/fetches
+  * Adds FetchDataSourceStats used to log stats/profiling data returned
+    from datasources. This is stored in statsRef like any other Stats.
 
 # Changes in version 2.3.0.0
   * Removed `FutureFetch`

@@ -88,6 +88,9 @@ module Haxl.Core (
   , putResult
   , putSuccess
   , putResultFromChildThread
+  , putResultWithStats
+  , putResultWithStatsFromChildThread
+  , DataSourceStats(..)
 
     -- ** Default fetch implementations
   , asyncFetch, asyncFetchWithDispatch, asyncFetchAcquireRelease

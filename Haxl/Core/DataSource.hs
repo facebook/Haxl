@@ -36,6 +36,8 @@ module Haxl.Core.DataSource
   , putResult
   , putResultFromChildThread
   , putSuccess
+  , putResultWithStats
+  , putResultWithStatsFromChildThread
 
   -- * Default fetch implementations
   , asyncFetch, asyncFetchWithDispatch
@@ -61,6 +63,7 @@ import Haxl.Core.Exception
 import Haxl.Core.Flags
 import Haxl.Core.ShowP
 import Haxl.Core.StateStore
+import Haxl.Core.Stats
 
 
 import GHC.Conc ( newStablePtrPrimMVar
@@ -70,7 +73,6 @@ import Control.Concurrent ( threadCapability
                           , myThreadId )
 import Control.Concurrent.MVar
 import Foreign.StablePtr
-import System.Mem (setAllocationCounter)
 
 -- ---------------------------------------------------------------------------
 -- DataSource class
@@ -183,12 +185,15 @@ data BlockedFetch r = forall a. BlockedFetch (r a) (ResultVar a)
 -- ResultVar
 
 -- | A sink for the result of a data fetch in 'BlockedFetch'
-newtype ResultVar a = ResultVar (Either SomeException a -> Bool -> IO ())
+newtype ResultVar a =
+  ResultVar (Either SomeException a -> Bool -> Maybe DataSourceStats -> IO ())
   -- The Bool here is True if result was returned by a child thread,
   -- rather than the main runHaxl thread.  see Note [tracking allocation in
   -- child threads]
 
-mkResultVar :: (Either SomeException a -> Bool -> IO ()) -> ResultVar a
+mkResultVar
+  :: (Either SomeException a -> Bool -> Maybe DataSourceStats -> IO ())
+  -> ResultVar a
 mkResultVar = ResultVar
 
 putFailure :: (Exception e) => ResultVar a -> e -> IO ()
@@ -198,7 +203,15 @@ putSuccess :: ResultVar a -> a -> IO ()
 putSuccess r = putResult r . Right
 
 putResult :: ResultVar a -> Either SomeException a -> IO ()
-putResult (ResultVar io) res = io res False
+putResult (ResultVar io) res = io res False Nothing
+
+putResultWithStats
+  :: ResultVar a -> Either SomeException a -> DataSourceStats -> IO ()
+putResultWithStats (ResultVar io) res st = io res False (Just st)
+
+putResultWithStatsFromChildThread
+  :: ResultVar a -> Either SomeException a -> DataSourceStats -> IO ()
+putResultWithStatsFromChildThread (ResultVar io) res st = io res True (Just st)
 
 -- | Like `putResult`, but used to get correct accounting when work is
 -- being done in child threads.  This is particularly important for
@@ -216,7 +229,7 @@ putResult (ResultVar io) res = io res False
 -- 'putResultFromChildThread', so that allocation is not counted
 -- multiple times.
 putResultFromChildThread :: ResultVar a -> Either SomeException a -> IO ()
-putResultFromChildThread (ResultVar io) res =  io res True
+putResultFromChildThread (ResultVar io) res =  io res True Nothing
   -- see Note [tracking allocation in child threads]
 
 -- | Function for easily setting a fetch to a particular exception
