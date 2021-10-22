@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ['8.10.2', '8.8.4', '8.6.5', '8.4.4', '8.2.2']
+        ghc: ['8.10.2', '8.8.4', '8.6.5', '8.4.4', '8.2.2', '9.0.1']
 
     steps:
     - uses: actions/checkout@v2
