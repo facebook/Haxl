@@ -362,9 +362,6 @@ asHaxlException e
 rethrowAsyncExceptions :: SomeException -> IO ()
 rethrowAsyncExceptions e
   | Just SomeAsyncException{} <- fromException e = Exception.throw e
-  | Just AllocationLimitExceeded{} <- fromException e = Exception.throw e
-    -- AllocationLimitExceeded is not a child of SomeAsyncException,
-    -- but it should be.
   | otherwise = return ()
 
 tryWithRethrow :: IO a -> IO (Either SomeException a)
