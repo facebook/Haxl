@@ -53,7 +53,8 @@ makeTestEnv future = do
   stio <- mkConcurrentIOState
   let st = stateSet stio $ stateSet tao stateEmpty
   env <- initEnv st testinput
-  return env { flags = (flags env) { report = 2 } }
+  return env { flags = (flags env) {
+    report = setReportFlag ReportFetchStats defaultReportFlags } }
 
 expectResultWithEnv
   :: (Eq a, Show a) => a -> Haxl a -> HaxlEnv -> Assertion

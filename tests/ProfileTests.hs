@@ -31,7 +31,7 @@ import SleepDataSource
 
 mkProfilingEnv = do
   env <- makeTestEnv False
-  return env { flags = (flags env) { report = 4 } }
+  return env { flags = (flags env) { report = profilingReportFlags } }
 
 -- expects only one label to be shown
 labelToDataMap :: Profile -> HashMap.HashMap ProfileLabel ProfileData
@@ -132,7 +132,8 @@ exceptions = do
 threadAlloc :: Integer -> Assertion
 threadAlloc batches = do
   env' <- initEnv (stateSet mkWorkState stateEmpty) ()
-  let env = env'  { flags = (flags env') { report = 2 } }
+  let env = env'  { flags = (flags env') {
+    report = setReportFlag ReportFetchStats defaultReportFlags } }
   a0 <- getAllocationCounter
   let
     wsize = 100000

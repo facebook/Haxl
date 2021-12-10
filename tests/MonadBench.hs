@@ -28,7 +28,7 @@ import ExampleDataSource
 
 newtype SimpleWrite = SimpleWrite Text deriving (Eq, Show)
 
-testEnv :: Int -> IO (Env () SimpleWrite)
+testEnv :: ReportFlags -> IO (Env () SimpleWrite)
 testEnv report = do
   exstate <- ExampleDataSource.initGlobalState
   let st = stateSet exstate stateEmpty
@@ -110,7 +110,7 @@ allTests =
 data Options = Options
   { test :: String
   , nOverride :: Maybe Int
-  , reportFlag :: Int
+  , reportFlag :: ReportFlags
   }
 
 runTest :: Options -> Test -> IO ()
@@ -126,9 +126,14 @@ runTest Options{..} (t, nDef, act) = do
 optionsParser :: Parser Options
 optionsParser = do
   test <- argument str (metavar "TEST")
-  reportFlag <- option auto (long "report" <> value 0 <> metavar "REPORT")
+  reportFlag <- reportFlagParser
   nOverride <- optional $ argument auto (metavar "NUM")
   return Options{..}
+  where
+    reportFlagParser = foldl' (flip ($)) defaultReportFlags <$> sequenceA
+      [ flag id (setReportFlag i) $ long $ show i
+      | i <- enumFrom minBound
+      ]
 
 main :: IO ()
 main = do

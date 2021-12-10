@@ -156,7 +156,7 @@ stdResultVar Env{..} ivar p =
     -- Decrement the counter as request has finished. Do this after updating the
     -- completions TVar so that if the scheduler is tracking what was being
     -- waited on it gets a consistent view.
-    ifReport flags 1 $
+    ifReport flags ReportOutgoneFetches $
       atomicModifyIORef' submittedReqsRef (\m -> (subFromCountMap p 1 m, ()))
 {-# INLINE stdResultVar #-}
 
@@ -166,7 +166,7 @@ stdResultVar Env{..} ivar p =
 logFetch :: Env u w -> (r a -> String) -> r a -> CallId -> IO ()
 #ifdef PROFILING
 logFetch env showFn req fid = do
-  ifReport (flags env) 5 $ do
+  ifReport (flags env) ReportFetchStack $ do
     stack <- currentCallStack
     modifyIORef' (statsRef env) $ \(Stats s) ->
       Stats (FetchCall (showFn req) stack fid : s)
@@ -281,7 +281,7 @@ dataFetchWithInsert showFn insertFn req =
             Nothing -> submitFetch
             Just fallbackRes -> do
               addFallbackResult env fallbackRes ivar
-              when (report flags >= 2) $ addFallbackFetchStats
+              ifReport flags ReportFetchStats $ addFallbackFetchStats
                 env
                 fid
                 req
@@ -457,7 +457,7 @@ performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
                   <> Text.pack (showp req)
         Just state ->
           return $ FetchToDo reqs
-            $ (if report f >= 2
+            $ (if testReportFlag ReportFetchStats $ report f
                 then wrapFetchInStats
                         (userEnv env)
                         sref
@@ -703,7 +703,7 @@ time io = do
 scheduleFetches :: [FetchToDo] -> IORef ReqCountMap -> Flags -> IO ()
 scheduleFetches fetches ref flags = do
   -- update ReqCountmap for these fetches
-  ifReport flags 1 $ sequence_
+  ifReport flags ReportOutgoneFetches $ sequence_
     [ atomicModifyIORef' ref $
         \m -> (addToCountMap (Proxy :: Proxy r) (length reqs) m, ())
     | FetchToDo (reqs :: [BlockedFetch r]) _f <- fetches

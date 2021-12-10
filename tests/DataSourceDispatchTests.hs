@@ -54,7 +54,8 @@ makeTestEnv :: UserEnv -> IO (Env UserEnv ())
 makeTestEnv testUsrEnv = do
   st <- initDataSource
   e <- initEnv (stateSet st stateEmpty) testUsrEnv
-  return e { flags = (flags e) { report = 2 } }
+  return e { flags = (flags e) {
+    report = setReportFlag ReportFetchStats defaultReportFlags } }
 
 schedulerTest:: Test
 schedulerTest = TestCase $ do

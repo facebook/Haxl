@@ -96,7 +96,7 @@ runHaxlWithWrites env@Env{..} haxl = do
                        _ -> modifyIORef' runQueueRef (appendJobList rq)
                    else reschedule env (appendJobList haxls rq)
       r <-
-        if report flags >= 4          -- withLabel unfolded
+        if testReportFlag ReportProfiling $ report flags  -- withLabel unfolded
           then Exception.try $ profileCont run env
           else Exception.try $ run env
       case r of
@@ -229,7 +229,7 @@ runHaxlWithWrites env@Env{..} haxl = do
                         , fetchWaitDuration = (end-start)
                         }
               modifyIORef' statsRef $ \(Stats s) -> Stats (fw:s)
-      if report flags >= 2
+      if testReportFlag ReportFetchStats $ report flags
         then doWaitProfiled
         else doWait
       emptyRunQueue env

@@ -63,7 +63,16 @@ module Haxl.Core (
   , AllocCount
   , LabelHitCount
 
-    -- ** Tracing flags
+    -- * Report flags
+  , ReportFlag(..)
+  , ReportFlags
+  , defaultReportFlags
+  , profilingReportFlags
+  , setReportFlag
+  , clearReportFlag
+  , testReportFlag
+
+    -- ** Flags
   , Flags(..)
   , defaultFlags
   , ifTrace

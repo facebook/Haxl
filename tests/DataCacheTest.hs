@@ -161,7 +161,7 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestList
 
     addLookup :: Env () Int -> Env () Int
     addLookup e = e { dataCacheFetchFallback = Just (DataCacheLookup lookup)
-                    , flags = (flags e) { report = 4 }
+                    , flags = (flags e) { report = profilingReportFlags }
                     }
     lookup
       :: forall req a . Typeable (req a)

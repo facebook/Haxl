@@ -29,7 +29,8 @@ testEnv = do
   sleepState <- mkConcurrentIOState
   let st = stateSet exstate $ stateSet sleepState stateEmpty
   e <- initEnv st ()
-  return e { flags = (flags e) {report = 1} }
+  return e { flags = (flags e) {
+    report = setReportFlag ReportOutgoneFetches defaultReportFlags } }
     -- report=1 to enable fetches tracking
 
 -- A cheap haxl computation we interleave b/w the @sleep@ fetches.

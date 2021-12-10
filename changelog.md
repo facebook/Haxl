@@ -3,6 +3,7 @@
   * Profiling now tracks full stacks and links each label to memos/fetches
   * Adds FetchDataSourceStats used to log stats/profiling data returned
     from datasources. This is stored in statsRef like any other Stats.
+  * Report flag was changed from sequential numbers to bitmask.
 
 # Changes in version 2.3.0.0
   * Removed `FutureFetch`

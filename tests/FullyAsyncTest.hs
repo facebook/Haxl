@@ -23,7 +23,8 @@ tests = sleepTest
 testEnv = do
   st <- mkConcurrentIOState
   env <- initEnv (stateSet st stateEmpty) ()
-  return env { flags = (flags env) { report = 2 } }
+  return env { flags = (flags env) {
+    report = setReportFlag ReportFetchStats defaultReportFlags } }
 
 sleepTest :: Test
 sleepTest = TestCase $ do

@@ -220,7 +220,8 @@ execMemoNowProfiled
   -> IVar u w a
   -> CallId
   -> IO (Result u w a)
-execMemoNowProfiled envOuter cont ivar cid = if report (flags envOuter) < 4
+execMemoNowProfiled envOuter cont ivar cid =
+  if not $ testReportFlag ReportProfiling $ report $ flags envOuter
   then execMemoNow envOuter cont ivar
   else do
     incrementMemoHitCounterFor envOuter cid False

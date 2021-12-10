@@ -33,7 +33,8 @@ testEnv = do
 
   -- Create the Env:
   env <- initEnv st ()
-  return env{ flags = (flags env){ report = 2 } }
+  return env{ flags = (flags env){
+    report = setReportFlag ReportFetchStats defaultReportFlags } }
 
 
 tests = TestList [

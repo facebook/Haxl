@@ -4,6 +4,8 @@
 -- This source code is distributed under the terms of a BSD license,
 -- found in the LICENSE file.
 
+{-# LANGUAGE BangPatterns #-}
+
 -- |
 -- The 'Flags' type and related functions.  This module is provided
 -- for access to Haxl internals only; most users should import
@@ -11,8 +13,16 @@
 --
 module Haxl.Core.Flags
   (
-    -- * Tracing flags
-    Flags(..)
+    -- * Report flags
+    ReportFlag(..)
+  , ReportFlags
+  , defaultReportFlags
+  , profilingReportFlags
+  , setReportFlag
+  , clearReportFlag
+  , testReportFlag
+    -- * Flags
+  , Flags(..)
   , defaultFlags
   , ifTrace
   , ifReport
@@ -20,6 +30,54 @@ module Haxl.Core.Flags
   ) where
 
 import Control.Monad
+import Data.Bits
+import Data.List (foldl')
+
+-- ---------------------------------------------------------------------------
+-- ReportFlags
+data ReportFlag
+  = ReportOutgoneFetches  -- ^ outgone fetches, for debugging eg: timeouts
+  | ReportFetchStats  -- ^ data fetch stats & errors
+  | ReportProfiling   -- ^ enabling label stack and profiling
+  | ReportFetchStack  -- ^ log stack traces of dataFetch calls
+  deriving (Bounded, Enum, Eq, Show)
+
+profilingDependents :: [ReportFlag]
+profilingDependents =
+  [ ReportFetchStack
+  ]
+
+newtype ReportFlags = ReportFlags Int
+
+defaultReportFlags :: ReportFlags
+defaultReportFlags = ReportFlags 0
+
+profilingReportFlags :: ReportFlags
+profilingReportFlags = foldl' (flip setReportFlag) defaultReportFlags
+  [ ReportOutgoneFetches
+  , ReportFetchStats
+  , ReportProfiling
+  ]
+
+setReportFlag :: ReportFlag -> ReportFlags -> ReportFlags
+setReportFlag f (ReportFlags fs) =
+  ReportFlags $ setDependencies $ setBit fs $ fromEnum f
+  where
+    setDependencies
+      | f `elem` profilingDependents = flip setBit $ fromEnum ReportProfiling
+      | otherwise = id
+
+clearReportFlag :: ReportFlag -> ReportFlags -> ReportFlags
+clearReportFlag f (ReportFlags fs) =
+  ReportFlags $ clearDependents $ clearBit fs $ fromEnum f
+  where
+    clearDependents z = case f of
+      ReportProfiling -> foldl' clearBit z $ map fromEnum profilingDependents
+      _ -> z
+
+{-# INLINE testReportFlag #-}
+testReportFlag :: ReportFlag -> ReportFlags -> Bool
+testReportFlag !f (ReportFlags !fs) = testBit fs $ fromEnum f
 
 -- ---------------------------------------------------------------------------
 -- Flags
@@ -28,14 +86,8 @@ import Control.Monad
 data Flags = Flags
   { trace :: {-# UNPACK #-} !Int
     -- ^ Tracing level (0 = quiet, 3 = very verbose).
-  , report :: {-# UNPACK #-} !Int
-    -- ^ Report level:
-    --    * 0 = quiet
-    --    * 1 = outgone fetches, for debugging eg: timeouts
-    --    * 2 = data fetch stats & errors
-    --    * 3 = (same as 2, this used to enable errors)
-    --    * 4 = profiling
-    --    * 5 = log stack traces of dataFetch calls
+  , report :: {-# UNPACK #-} !ReportFlags
+    -- ^ Report flags
   , caching :: {-# UNPACK #-} !Int
     -- ^ Non-zero if caching is enabled.  If caching is disabled, then
     -- we still do batching and de-duplication, but do not cache
@@ -48,7 +100,7 @@ data Flags = Flags
 defaultFlags :: Flags
 defaultFlags = Flags
   { trace = 0
-  , report = 0
+  , report = defaultReportFlags
   , caching = 1
   , recording = 0
   }
@@ -57,9 +109,9 @@ defaultFlags = Flags
 ifTrace :: Monad m => Flags -> Int -> m a -> m ()
 ifTrace flags i = when (trace flags >= i) . void
 
--- | Runs an action if the report level is above the given threshold.
-ifReport :: Monad m => Flags -> Int -> m a -> m ()
-ifReport flags i = when (report flags >= i) . void
+-- | Runs an action if the ReportFlag is set.
+ifReport :: Monad m => Flags -> ReportFlag -> m a -> m ()
+ifReport flags i = when (testReportFlag i $ report flags) . void
 
 ifProfiling :: Monad m => Flags -> m a -> m ()
-ifProfiling flags = when (report flags >= 4) . void
+ifProfiling flags = ifReport flags ReportProfiling

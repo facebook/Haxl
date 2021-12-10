@@ -45,7 +45,7 @@ import Haxl.Core.Monad
 -- | Label a computation so profiling data is attributed to the label.
 withLabel :: ProfileLabel -> GenHaxl u w a -> GenHaxl u w a
 withLabel l (GenHaxl m) = GenHaxl $ \env ->
-  if report (flags env) < 4
+  if not $ testReportFlag ReportProfiling $ report $ flags env
      then m env
      else collectProfileData l m env
 
@@ -53,7 +53,7 @@ withLabel l (GenHaxl m) = GenHaxl $ \env ->
 -- Intended only for internal use by 'memoFingerprint'.
 withFingerprintLabel :: Addr# -> Addr# -> GenHaxl u w a -> GenHaxl u w a
 withFingerprintLabel mnPtr nPtr (GenHaxl m) = GenHaxl $ \env ->
-  if report (flags env) < 4
+  if not $ testReportFlag ReportProfiling $ report $ flags env
      then m env
      else collectProfileData
             (Text.unpackCString# mnPtr <> "." <> Text.unpackCString# nPtr)

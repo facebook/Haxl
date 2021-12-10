@@ -77,7 +77,8 @@ testEnv = do
 
   -- Create the Env:
   env <- initEnv st ()
-  return env{ flags = (flags env){ report = 5 } }
+  return env{ flags = (flags env){
+    report = setReportFlag ReportFetchStack profilingReportFlags } }
 
 
 fetchIdsSync :: Test
