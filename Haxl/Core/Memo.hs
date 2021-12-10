@@ -202,7 +202,7 @@ runMemo (MemoVar memoRef) = GenHaxl $ \env -> do
   case stored of
     -- Memo was not prepared first; throw an exception.
     MemoEmpty -> trace_ "MemoEmpty " $
-      raise $ CriticalError "Attempting to run empty memo."
+      raise env $ CriticalError "Attempting to run empty memo."
     -- Memo has been prepared but not run yet
     MemoReady cont k -> trace_ "MemoReady" $ do
       ivar <- newIVar

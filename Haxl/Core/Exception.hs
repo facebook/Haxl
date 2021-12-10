@@ -81,6 +81,7 @@ import Data.Aeson
 import Data.Binary (Binary)
 import Data.Typeable
 import Data.Text (Text)
+import qualified Data.Text as Text
 
 import Haxl.Core.Util
 import GHC.Stack
@@ -113,11 +114,12 @@ data HaxlException
          e
   deriving (Typeable)
 
-type Stack = [String]
+type Stack = [Text]
   -- hopefully this will get more informative in the future
 
 instance Show HaxlException where
-  show (HaxlException (Just stk@(_:_)) e) = show e ++ '\n' : renderStack stk
+  show (HaxlException (Just stk@(_:_)) e) =
+    show e ++ '\n' : renderStack (reverse $ map Text.unpack stk)
   show (HaxlException _ e) = show e
 
 instance Exception HaxlException
@@ -126,7 +128,7 @@ instance Exception HaxlException
 instance ToJSON HaxlException where
   toJSON (HaxlException stk e) = object fields
     where
-      fields | Just s@(_:_) <- stk = ("stack" .= reverse s) : rest
+      fields | Just s@(_:_) <- stk = ("stack" .= s) : rest
              | otherwise = rest
       rest =
         [ "type" .= show (typeOf e)

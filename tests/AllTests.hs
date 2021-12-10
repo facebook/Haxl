@@ -11,6 +11,7 @@ import TestExampleDataSource
 import BatchTests
 import CoreTests
 import DataCacheTest
+import ExceptionStackTests
 import AdoTests
 import OutgoneFetchesTests
 import ProfileTests
@@ -32,6 +33,7 @@ allTests = TestList
   , TestLabel "BatchTests-sync" $ BatchTests.tests False
   , TestLabel "CoreTests" CoreTests.tests
   , TestLabel "DataCacheTests" DataCacheTest.tests
+  , TestLabel "ExceptionStackTests" ExceptionStackTests.tests
   , TestLabel "AdoTests" $ AdoTests.tests False
   , TestLabel "OutgoneFetchesTest" OutgoneFetchesTests.tests
   , TestLabel "ProfileTests" ProfileTests.tests

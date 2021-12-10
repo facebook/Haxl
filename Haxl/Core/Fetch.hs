@@ -297,7 +297,7 @@ dataFetchWithInsert showFn insertFn req =
     -- Cached: either a result, or an exception
     Cached r fid -> do
       ifProfiling flags $ addProfileFetch env req fid True
-      done r
+      done env r
 
 -- | A data request that is not cached.  This is not what you want for
 -- normal read requests, because then multiple identical requests may
@@ -355,7 +355,7 @@ cacheResultWithInsert
   -> r a
   -> IO a
   -> GenHaxl u w a
-cacheResultWithInsert showFn insertFn req val = GenHaxl $ \e@Env{..} -> do
+cacheResultWithInsert showFn insertFn req val = GenHaxl $ \env@Env{..} -> do
   mbRes <- DataCache.lookup req dataCache
   case mbRes of
     Nothing -> do
@@ -373,16 +373,16 @@ cacheResultWithInsert showFn insertFn req val = GenHaxl $ \e@Env{..} -> do
           mbFallbackRes <- dcl req
           maybe getResult return mbFallbackRes
       ivar <- newFullIVar result
-      k <- nextCallId e
+      k <- nextCallId env
       insertFn req (DataCacheItem ivar k) dataCache
-      done result
+      done env result
     Just (DataCacheItem IVar{ivarRef = cr} _) -> do
       e <- readIORef cr
       case e of
-        IVarEmpty _ -> corruptCache
-        IVarFull r -> done r
+        IVarEmpty _ -> raise env corruptCache
+        IVarFull r -> done env r
   where
-    corruptCache = raise . DataSourceError $ Text.concat
+    corruptCache = DataSourceError $ Text.concat
       [ Text.pack (showFn req)
       , " has a corrupted cache value: these requests are meant to"
       , " return immediately without an intermediate value. Either"
@@ -412,7 +412,7 @@ cacheRequest request result = GenHaxl $ \e@Env{..} -> do
     -- It is an error if the request is already in the cache.
     -- We can't test whether the cached result is the same without adding an
     -- Eq constraint, and we don't necessarily have Eq for all results.
-    _other -> raise $
+    _other -> raise e $
       DataSourceError "cacheRequest: request is already in the cache"
 
 -- | Similar to @cacheRequest@ but doesn't throw an exception if the key

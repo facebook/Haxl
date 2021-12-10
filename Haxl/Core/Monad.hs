@@ -141,6 +141,7 @@ import Data.Either (rights)
 import Data.IORef
 import Data.Int
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NonEmpty
 #if __GLASGOW_HASKELL__ < 804
 import Data.Semigroup
 #endif
@@ -536,28 +537,28 @@ withCurrentCCS = return
 #endif
 
 getIVar :: IVar u w a -> GenHaxl u w a
-getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
+getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \env@Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a _wt) -> return (Done a)
-    IVarFull (ThrowHaxl e _wt) -> raiseFromIVar i e
+    IVarFull (ThrowHaxl e _wt) -> raiseFromIVar env i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ -> return (Blocked i (Return i))
 
 -- Just a specialised version of getIVar, for efficiency in <*>
 getIVarApply :: IVar u w (a -> b) -> a -> GenHaxl u w b
-getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \Env{..} -> do
+getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \env@Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok f _wt) -> return (Done (f a))
-    IVarFull (ThrowHaxl e _wt) -> raiseFromIVar i e
+    IVarFull (ThrowHaxl e _wt) -> raiseFromIVar env i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
       return (Blocked i (Cont (getIVarApply i a)))
 
 -- Another specialised version of getIVar, for efficiency in cachedComputation
 getIVarWithWrites :: IVar u w a -> GenHaxl u w a
-getIVarWithWrites i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
+getIVarWithWrites i@IVar{ivarRef = !ref} = GenHaxl $ \env@Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a wt) -> do
@@ -565,7 +566,7 @@ getIVarWithWrites i@IVar{ivarRef = !ref} = GenHaxl $ \Env{..} -> do
       return (Done a)
     IVarFull (ThrowHaxl e wt) -> do
       mbModifyWLRef wt writeLogsRef
-      raiseFromIVar i e
+      raiseFromIVar env i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
       return (Blocked i (Cont (getIVarWithWrites i)))
@@ -608,10 +609,10 @@ data ResultVal a w
   | ThrowIO SomeException
     -- we get no write logs when an IO exception occurs
 
-done :: ResultVal a w -> IO (Result u w a)
-done (Ok a _) = return (Done a)
-done (ThrowHaxl e _) = raise e
-done (ThrowIO e) = throwIO e
+done :: Env u w -> ResultVal a w -> IO (Result u w a)
+done _ (Ok a _) = return (Done a)
+done env (ThrowHaxl e _) = raise env e
+done _ (ThrowIO e) = throwIO e
 
 eitherToResultThrowIO :: Either SomeException a -> ResultVal a w
 eitherToResultThrowIO (Right a) = Ok a NilWrites
@@ -961,34 +962,40 @@ withCallGraph toText f a = do
 -- Exceptions
 
 -- | Throw an exception in the Haxl monad
-throw :: (Exception e) => e -> GenHaxl u w a
-throw e = GenHaxl $ \_env -> raise e
+throw :: Exception e => e -> GenHaxl u w a
+throw e = GenHaxl $ \env -> raise env e
 
-raise :: (Exception e) => e -> IO (Result u w a)
-raise e
+raise :: Exception e => Env u w -> e -> IO (Result u w a)
+raise env e = raiseImpl env (toException e)
 #ifdef PROFILING
-  | Just (HaxlException Nothing h) <- fromException somex = do
-    stk <- currentCallStack
-    return (Throw (toException (HaxlException (Just stk) h)))
-  | otherwise
+  currentCallStack
 #endif
-    = return (Throw somex)
-  where
-    somex = toException e
 
-raiseFromIVar :: Exception e => IVar u w a -> e -> IO (Result u w b)
+
+raiseFromIVar :: Exception e => Env u w -> IVar u w a -> e -> IO (Result u w b)
+raiseFromIVar env IVar{..} e = raiseImpl env (toException e)
 #ifdef PROFILING
-raiseFromIVar ivar e
-  | Just (HaxlException Nothing h) <- fromException somex = do
-    stk <- ccsToStrings (ivarCCS ivar)
-    return (Throw (toException (HaxlException (Just stk) h)))
-  | otherwise
+  (ccsToStrings ivarCCS)
+#endif
+
+{-# INLINE raiseImpl #-}
+#ifdef PROFILING
+raiseImpl :: Env u w -> SomeException -> IO [String] -> IO (Result u w b)
+raiseImpl Env{..} e getCostCentreStack
 #else
-raiseFromIVar _ivar e
+raiseImpl :: Env u w -> SomeException -> IO (Result u w b)
+raiseImpl Env{..} e
 #endif
-    = return (Throw somex)
-  where
-    somex = toException e
+  | testReportFlag ReportExceptionLabelStack $ report flags
+  , Just (HaxlException Nothing h) <- fromException e = do
+    let stk = NonEmpty.toList $ profLabelStack profCurrent
+    return $ Throw $ toException $ HaxlException (Just stk) h
+#ifdef PROFILING
+  | Just (HaxlException Nothing h) <- fromException e = do
+    stk <- reverse . map Text.pack <$> getCostCentreStack
+    return $ Throw $ toException $ HaxlException (Just stk) h
+#endif
+  | otherwise = return $ Throw e
 
 -- | Catch an exception in the Haxl monad
 catch :: Exception e => GenHaxl u w a -> (e -> GenHaxl u w a) -> GenHaxl u w a

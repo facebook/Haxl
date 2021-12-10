@@ -39,12 +39,14 @@ data ReportFlag
   = ReportOutgoneFetches  -- ^ outgone fetches, for debugging eg: timeouts
   | ReportFetchStats  -- ^ data fetch stats & errors
   | ReportProfiling   -- ^ enabling label stack and profiling
-  | ReportFetchStack  -- ^ log stack traces of dataFetch calls
+  | ReportExceptionLabelStack  -- ^ include label stack in HaxlException
+  | ReportFetchStack  -- ^ log cost-center stack traces of dataFetch calls
   deriving (Bounded, Enum, Eq, Show)
 
 profilingDependents :: [ReportFlag]
 profilingDependents =
-  [ ReportFetchStack
+  [ ReportExceptionLabelStack
+  , ReportFetchStack
   ]
 
 newtype ReportFlags = ReportFlags Int
