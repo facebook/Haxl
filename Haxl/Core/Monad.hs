@@ -537,7 +537,7 @@ withCurrentCCS = return
 #endif
 
 getIVar :: IVar u w a -> GenHaxl u w a
-getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \env@Env{..} -> do
+getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \env -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a _wt) -> return (Done a)
@@ -547,7 +547,7 @@ getIVar i@IVar{ivarRef = !ref} = GenHaxl $ \env@Env{..} -> do
 
 -- Just a specialised version of getIVar, for efficiency in <*>
 getIVarApply :: IVar u w (a -> b) -> a -> GenHaxl u w b
-getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \env@Env{..} -> do
+getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \env -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok f _wt) -> return (Done (f a))
@@ -973,9 +973,11 @@ raise env e = raiseImpl env (toException e)
 
 
 raiseFromIVar :: Exception e => Env u w -> IVar u w a -> e -> IO (Result u w b)
-raiseFromIVar env IVar{..} e = raiseImpl env (toException e)
 #ifdef PROFILING
-  (ccsToStrings ivarCCS)
+raiseFromIVar env IVar{..} e =
+  raiseImpl env (toException e) (ccsToStrings ivarCCS)
+#else
+raiseFromIVar env _ivar e = raiseImpl env (toException e)
 #endif
 
 {-# INLINE raiseImpl #-}

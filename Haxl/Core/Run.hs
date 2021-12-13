@@ -142,7 +142,7 @@ runHaxlWithWrites env@Env{..} haxl = do
           schedule env' c a b
 
     emptyRunQueue :: Env u w -> IO ()
-    emptyRunQueue env@Env{..} = do
+    emptyRunQueue env = do
       ifTraceLog $ printf "emptyRunQueue\n"
       haxls <- checkCompletions env
       case haxls of

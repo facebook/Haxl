@@ -47,7 +47,7 @@ biselect_opt :: (l -> Either a b)
              -> GenHaxl u w r
              -> GenHaxl u w t
 biselect_opt discrimA discrimB left right haxla haxlb =
-  let go (GenHaxl haxla) (GenHaxl haxlb) = GenHaxl $ \env@Env{..} -> do
+  let go (GenHaxl haxla) (GenHaxl haxlb) = GenHaxl $ \env -> do
         ra <- haxla env
         case ra of
           Done ea ->
