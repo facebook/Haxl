@@ -32,6 +32,7 @@ module Haxl.Core.Flags
 import Control.Monad
 import Data.Bits
 import Data.List (foldl')
+import Text.Printf (printf)
 
 -- ---------------------------------------------------------------------------
 -- ReportFlags
@@ -50,6 +51,11 @@ profilingDependents =
   ]
 
 newtype ReportFlags = ReportFlags Int
+
+instance Show ReportFlags where
+  show (ReportFlags fs) = printf "%0*b" (fromEnum maxReportFlag + 1) fs
+    where
+      maxReportFlag = maxBound :: ReportFlag
 
 defaultReportFlags :: ReportFlags
 defaultReportFlags = ReportFlags 0
