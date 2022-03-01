@@ -56,10 +56,10 @@ instance Hashable (CacheableReq x) where
 
 
 newResult :: a -> IO (IVar u w a)
-newResult a = IVar <$> newIORef (IVarFull (Ok a NilWrites))
+newResult a = newFullIVar (Ok a NilWrites)
 
 takeResult :: IVar u w a -> IO (ResultVal a w)
-takeResult (IVar ref) = do
+takeResult IVar{ivarRef = ref} = do
   e <- readIORef ref
   case e of
     IVarFull a -> return a
