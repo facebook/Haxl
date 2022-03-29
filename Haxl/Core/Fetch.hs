@@ -23,6 +23,7 @@
 module Haxl.Core.Fetch
   ( dataFetch
   , dataFetchWithShow
+  , dataFetchWithInsert
   , uncachedRequest
   , cacheResult
   , dupableCacheRequest
