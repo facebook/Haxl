@@ -43,7 +43,7 @@ extra-source-files:
 library
 
   build-depends:
-    aeson >= 0.6 && < 1.6,
+    aeson >= 0.6 && < 2.1,
     base >= 4.10 && < 5,
     binary >= 0.7 && < 0.10,
     bytestring >= 0.9 && < 0.11,

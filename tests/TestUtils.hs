@@ -5,6 +5,7 @@
 -- found in the LICENSE file.
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 module TestUtils
   ( makeTestEnv
   , expectResultWithEnv
@@ -21,7 +22,11 @@ import Haxl.DataSource.ConcurrentIO
 import Data.IORef
 import Data.Aeson
 import Test.HUnit
-import qualified Data.HashMap.Strict as HashMap
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KeyMap
+#else
+import qualified Data.HashMap.Strict as KeyMap
+#endif
 
 import Haxl.Core
 
@@ -29,7 +34,7 @@ import Prelude()
 import Haxl.Prelude
 
 testinput :: Object
-testinput = HashMap.fromList [
+testinput = KeyMap.fromList [
   "A" .= (1 :: Int),
   "B" .= (2 :: Int),
   "C" .= (3 :: Int),

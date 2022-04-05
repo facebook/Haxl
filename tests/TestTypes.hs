@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE CPP #-}
 
 module TestTypes
    ( UserEnv
@@ -18,29 +19,40 @@ module TestTypes
 
 import Data.Aeson
 import Data.Binary (Binary)
-import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.HashMap.Strict as HashMap
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Aeson.Key (toText)
+#else
+import qualified Data.HashMap.Strict as KeyMap
+#endif
 import Data.Hashable
 import Data.Typeable
 
 import Haxl.Core
 
+#if !MIN_VERSION_aeson(2,0,0)
+type Key = Text.Text
+
+toText :: Key -> Text.Text
+toText = id
+#endif
+
 type UserEnv = Object
 type Haxl a = GenHaxl UserEnv () a
 type HaxlEnv = Env UserEnv ()
 
-lookupInput :: FromJSON a => Text -> Haxl a
+lookupInput :: FromJSON a => Key -> Haxl a
 lookupInput field = do
-  mb_val <- env (HashMap.lookup field . userEnv)
+  mb_val <- env (KeyMap.lookup field . userEnv)
   case mb_val of
     Nothing ->
-      throw (NotFound (Text.concat ["field ", field, " was not found."]))
+      throw (NotFound (Text.concat ["field ", toText field, " was not found."]))
     Just val ->
       case fromJSON val of
         Error str ->
           throw (UnexpectedType (Text.concat
-            ["field ", field, ": ", Text.pack str]))
+            ["field ", toText field, ": ", Text.pack str]))
         Success a -> return a
 
 
