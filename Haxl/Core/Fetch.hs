@@ -48,6 +48,7 @@ import Data.Monoid
 import Data.Proxy
 import Data.Typeable
 import Data.Text (Text)
+import Data.Kind (Type)
 import qualified Data.Text as Text
 import Text.Printf
 #ifdef PROFILING
@@ -316,7 +317,7 @@ dataFetchWithInsert showFn insertFn req =
 -- allows a transparent run afterwards. Without this, the test would try to
 -- call the datasource during testing and that would be an exception.
 uncachedRequest
- :: forall a u w (r :: * -> *). (DataSource u r, Request r a)
+ :: forall a u w (r :: Type -> Type). (DataSource u r, Request r a)
  => r a -> GenHaxl u w a
 uncachedRequest req = do
   flg <- env flags
@@ -485,7 +486,7 @@ performFetches env@Env{flags=f, statsRef=sref, statsBatchIdRef=sbref} jobs = do
 
 data FetchToDo where
   FetchToDo
-    :: forall (req :: * -> *). (DataSourceName req, Typeable req)
+    :: forall (req :: Type -> Type). (DataSourceName req, Typeable req)
     => [BlockedFetch req] -> PerformFetch req -> FetchToDo
 
 -- Catch exceptions arising from the data source and stuff them into
