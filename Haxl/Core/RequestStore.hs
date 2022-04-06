@@ -44,6 +44,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as Map
 import Data.Proxy
 import Data.Text (Text)
+import Data.Kind (Type)
 import Data.Typeable
 import Unsafe.Coerce
 
@@ -110,7 +111,7 @@ emptyReqCounts :: ReqCountMap
 emptyReqCounts = ReqCountMap Map.empty
 
 addToCountMap
-  :: forall (r :: * -> *). (DataSourceName r, Typeable r)
+  :: forall (r :: Type -> Type). (DataSourceName r, Typeable r)
   => Proxy r
   -> Int -- type and number of requests
   -> ReqCountMap
@@ -118,7 +119,7 @@ addToCountMap
 addToCountMap = updateCountMap (+)
 
 subFromCountMap
-  :: forall (r :: * -> *). (DataSourceName r, Typeable r)
+  :: forall (r :: Type -> Type). (DataSourceName r, Typeable r)
   => Proxy r
   -> Int -- type and number of requests
   -> ReqCountMap
@@ -126,7 +127,7 @@ subFromCountMap
 subFromCountMap = updateCountMap (-)
 
 updateCountMap
-  :: forall (r :: * -> *). (DataSourceName r, Typeable r)
+  :: forall (r :: Type -> Type). (DataSourceName r, Typeable r)
   => (Int -> Int -> Int)
   -> Proxy r
   -> Int -- type and number of requests

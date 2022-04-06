@@ -57,6 +57,7 @@ import Control.Exception
 import Control.Monad
 import Data.Hashable
 import Data.Text (Text)
+import Data.Kind (Type)
 import Data.Typeable
 
 import Haxl.Core.Exception
@@ -109,7 +110,7 @@ class (DataSourceName req, StateKey req, ShowP req) => DataSource u req where
   classifyFailure :: u -> req a -> SomeException -> FailureClassification
   classifyFailure _ _ _ = StandardFailure
 
-class DataSourceName (req :: * -> *) where
+class DataSourceName (req :: Type -> Type) where
   -- | The name of this 'DataSource', used in tracing and stats. Must
   -- take a dummy request.
   dataSourceName :: Proxy req -> Text
@@ -130,7 +131,7 @@ type Request req a =
   )
 
 -- | Hints to the scheduler about this data source
-data SchedulerHint (req :: * -> *)
+data SchedulerHint (req :: Type -> Type)
   = TryToBatch
     -- ^ Hold data-source requests while we execute as much as we can, so
     -- that we can hopefully collect more requests to batch.

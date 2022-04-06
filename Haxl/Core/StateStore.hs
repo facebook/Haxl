@@ -23,6 +23,7 @@ module Haxl.Core.StateStore
   ) where
 
 import Data.Map (Map)
+import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 #if __GLASGOW_HASKELL__ < 804
 import Data.Monoid
@@ -34,7 +35,7 @@ import Unsafe.Coerce
 -- instance of 'StateKey' can store and retrieve information from a
 -- 'StateStore'.
 --
-class Typeable f => StateKey (f :: * -> *) where
+class Typeable f => StateKey (f :: Type -> Type) where
   data State f
 
   -- | We default this to typeOf1, but if f is itself a complex type that is
