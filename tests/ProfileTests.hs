@@ -7,6 +7,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
 
 module ProfileTests where
 
@@ -23,6 +24,11 @@ import Control.Exception (evaluate)
 import Data.Aeson
 import Data.IORef
 import qualified Data.HashMap.Strict as HashMap
+#if MIN_VERSION_aeson(2,0,0)
+import qualified Data.Aeson.KeyMap as KeyMap
+#else
+import qualified Data.HashMap.Strict as KeyMap
+#endif
 import Data.Int
 
 import TestUtils
@@ -53,7 +59,7 @@ collectsdata = do
               slp <- sum <$> mapM (\x -> withLabel "baz" $ return x) [1..5]
               -- do some non-trivial work that can't be lifted out
               -- first sleep though in order to force a Blocked result
-              sleep slp `andThen` case fromJSON <$> HashMap.lookup "A" u of
+              sleep slp `andThen` case fromJSON <$> KeyMap.lookup "A" u of
                 Just (Success n) | sum [n .. 1000::Integer] > 0 -> return 5
                 _otherwise -> return (4::Int)
   profCopy <- readIORef (profRef e)
@@ -94,7 +100,7 @@ collectsLazyData = do
   _x <- runHaxl e $ withLabel "bar" $ do
           u <- env userEnv
           withLabel "foo" $ do
-             let start = if HashMap.member "A" u
+             let start = if KeyMap.member "A" u
                          then 10
                          else 1
              return $ sum [start..10000::Integer]
