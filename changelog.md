@@ -1,4 +1,4 @@
-# Changes in version <next>
+# Changes in version 2.4.0.0
   * Added fetchBatchId to FetchStats
   * Profiling now tracks full stacks and links each label to memos/fetches
   * Adds FetchDataSourceStats used to log stats/profiling data returned
