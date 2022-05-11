@@ -532,13 +532,15 @@ data FailureCount = FailureCount
 
 #if __GLASGOW_HASKELL__ >= 804
 instance Semigroup FailureCount where
-  (<>) = mappend
+  FailureCount s1 i1 <> FailureCount s2 i2 = FailureCount (s1+s2) (i1+i2)
 #endif
 
 instance Monoid FailureCount where
   mempty = FailureCount 0 0
+#if __GLASGOW_HASKELL__ < 804
   mappend (FailureCount s1 i1) (FailureCount s2 i2)
     = FailureCount (s1+s2) (i1+i2)
+#endif
 
 wrapFetchInStats
   :: DataSource u req

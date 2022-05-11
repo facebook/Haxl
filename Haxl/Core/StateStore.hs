@@ -49,13 +49,15 @@ newtype StateStore = StateStore (Map TypeRep StateStoreData)
 
 #if __GLASGOW_HASKELL__ >= 804
 instance Semigroup StateStore where
-  (<>) = mappend
+  -- Left-biased union
+  StateStore m1 <> StateStore m2 = StateStore $ m1 <> m2
 #endif
 
 instance Monoid StateStore where
   mempty = stateEmpty
-  -- Left-biased union
+#if __GLASGOW_HASKELL__ < 804
   mappend (StateStore m1) (StateStore m2) = StateStore $ m1 <> m2
+#endif
 
 -- | Encapsulates the type of 'StateStore' data so we can have a
 -- heterogeneous collection.

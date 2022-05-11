@@ -775,7 +775,7 @@ toHaxlFmap f (Return i) = f <$> getIVar i
 -- Monad/Applicative instances
 
 instance Monad (GenHaxl u w) where
-  return a = GenHaxl $ \_env -> return (Done a)
+  return = pure
   GenHaxl m >>= k = GenHaxl $ \env -> do
     e <- m env
     case e of
@@ -803,7 +803,7 @@ instance Functor (GenHaxl u w) where
         return (Blocked ivar (f :<$> cont))
 
 instance Applicative (GenHaxl u w) where
-  pure = return
+  pure a = GenHaxl $ \_env -> pure (Done a)
   GenHaxl ff <*> GenHaxl aa = GenHaxl $ \env -> do
     rf <- ff env
     case rf of
@@ -831,7 +831,9 @@ instance Semigroup a => Semigroup (GenHaxl u w a) where
 
 instance Monoid a => Monoid (GenHaxl u w a) where
   mempty = pure mempty
+#if __GLASGOW_HASKELL__ < 804
   mappend = liftA2 mappend
+#endif
 
 blockedBlocked
   :: Env u w
