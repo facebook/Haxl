@@ -17,8 +17,10 @@ tested-with:
   GHC==8.2.2,
   GHC==8.4.4,
   GHC==8.6.5,
-  GHC==8.8.3,
-  GHC==8.10.1
+  GHC==8.8.4,
+  GHC==8.10.7
+  GHC==9.0.1
+  GHC==9.2.2
 
 description:
   Haxl is a library and EDSL for efficient scheduling of concurrent data
@@ -46,7 +48,7 @@ library
     aeson >= 0.6 && < 2.1,
     base >= 4.10 && < 5,
     binary >= 0.7 && < 0.10,
-    bytestring >= 0.9 && < 0.11,
+    bytestring >= 0.9 && < 0.12,
     containers >= 0.5 && < 0.7,
     deepseq,
     exceptions >=0.8 && <0.11,
