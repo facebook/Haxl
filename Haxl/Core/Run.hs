@@ -22,6 +22,7 @@ import Control.Concurrent.STM
 import Control.Exception as Exception
 import Control.Monad
 import Data.IORef
+import Data.Maybe
 import Text.Printf
 import Unsafe.Coerce
 
@@ -49,10 +50,10 @@ import qualified Data.HashTable.IO as H
 --
 -- However, multiple 'Env's may share a single 'StateStore', and thereby
 -- use the same set of datasources.
-runHaxl:: forall u w a. Env u w -> GenHaxl u w a -> IO a
+runHaxl:: forall u w a. Monoid w => Env u w -> GenHaxl u w a -> IO a
 runHaxl env haxl = fst <$> runHaxlWithWrites env haxl
 
-runHaxlWithWrites :: forall u w a. Env u w -> GenHaxl u w a -> IO (a, [w])
+runHaxlWithWrites :: forall u w a. Monoid w => Env u w -> GenHaxl u w a -> IO (a, w)
 runHaxlWithWrites env@Env{..} haxl = do
   result@IVar{ivarRef = resultRef} <- newIVar -- where to put the final result
   ifTraceLog <- do
@@ -105,10 +106,10 @@ runHaxlWithWrites env@Env{..} haxl = do
           result (ThrowIO e)
         Right (Done a) -> do
           wt <- readIORef writeLogsRef
-          result (Ok a wt)
+          result $ Ok a (Just wt)
         Right (Throw ex) -> do
           wt <- readIORef writeLogsRef
-          result (ThrowHaxl ex wt)
+          result $ ThrowHaxl ex (Just wt)
         Right (Blocked i fn) -> do
           addJob env (toHaxl fn) ivar i
           reschedule env rq
@@ -237,13 +238,13 @@ runHaxlWithWrites env@Env{..} haxl = do
   --
   schedule env JobNil haxl result
   r <- readIORef resultRef
-  writeIORef writeLogsRef NilWrites
+  writeIORef writeLogsRef mempty
   wtNoMemo <- atomicModifyIORef' writeLogsRefNoMemo
-    (\old_wrts -> (NilWrites , old_wrts))
+    (\old_wrts -> (mempty, old_wrts))
   case r of
     IVarEmpty _ -> throwIO (CriticalError "runHaxl: missing result")
     IVarFull (Ok a wt) -> do
-      return (a, flattenWT (wt `appendWTs` wtNoMemo))
+      return (a, fromMaybe mempty wt <> wtNoMemo)
     IVarFull (ThrowHaxl e _wt)  -> throwIO e
       -- The written logs are discarded when there's a Haxl exception. We
       -- can change this behavior if we need to get access to partial logs.

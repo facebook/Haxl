@@ -55,8 +55,8 @@ instance Hashable (CacheableReq x) where
   hashWithSalt s (CacheableInt val) = hashWithSalt s (0::Int, val)
 
 
-newResult :: a -> IO (IVar u w a)
-newResult a = newFullIVar (Ok a NilWrites)
+newResult :: Monoid w => a -> IO (IVar u w a)
+newResult a = newFullIVar (Ok a mempty)
 
 takeResult :: IVar u w a -> IO (ResultVal a w)
 takeResult IVar{ivarRef = ref} = do
@@ -85,13 +85,13 @@ dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
   r <- mapM takeResult =<< DataCache.lookup (Req 1) cache
   assertBool "dcSoundness2" $
     case r :: Maybe (ResultVal Int ()) of
-     Just (Ok 1 NilWrites) -> True
+     Just (Ok 1 Nothing) -> True
      _something_else -> False
 
   r <- mapM takeResult =<< DataCache.lookup (Req 2) cache
   assertBool "dcSoundness3" $
     case r :: Maybe (ResultVal String ()) of
-      Just (Ok "hello" NilWrites) -> True
+      Just (Ok "hello" Nothing) -> True
       _something_else -> False
 
   r <- mapM takeResult =<< DataCache.lookup (Req 2) cache
@@ -103,7 +103,7 @@ dcSoundnessTest = TestLabel "DataCache soundness" $ TestCase $ do
 
 dcStrictnessTest :: Test
 dcStrictnessTest = TestLabel "DataCache strictness" $ TestCase $ do
-  env <- initEnv stateEmpty ()
+  env <- initEnv stateEmpty () :: IO (Env () ())
   r <- Control.Exception.try $ runHaxl env $
     cachedComputation (Req (error "BOOM")) $ return "OK"
   assertBool "dcStrictnessTest" $
@@ -145,7 +145,7 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestList
         case rbad of
           Left (NotFound _) -> True
           _ -> False
-      assertEqual "write side effects happen" [7] writes
+      assertEqual "write side effects happen" [7] (flattenWT writes)
   ]
   where
 
@@ -159,14 +159,14 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestList
                 ]
       return c
 
-    addLookup :: Env () Int -> Env () Int
+    addLookup :: Env () (WriteTree Int) -> Env () (WriteTree Int)
     addLookup e = e { dataCacheFetchFallback = Just (DataCacheLookup lookup)
                     , flags = (flags e) { report = profilingReportFlags }
                     }
     lookup
       :: forall req a . Typeable (req a)
       => req a
-      -> IO (Maybe (ResultVal a Int))
+      -> IO (Maybe (ResultVal a (WriteTree Int)))
     lookup r
       | typeOf r == typeRep (Proxy :: Proxy (TestReq Int)) =
         -- have to coerce on the way out as results are not Typeable
@@ -176,12 +176,12 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestList
           return $ unsafeCoerce . doCache <$> cast r
       | otherwise = return Nothing
 
-    doReq :: TestReq Int -> ResultVal Int Int
-    doReq (Req 999) = ThrowHaxl (toException $ NotFound empty) NilWrites
-    doReq (Req r) = Ok r NilWrites
+    doReq :: TestReq Int -> ResultVal Int (WriteTree Int)
+    doReq (Req 999) = ThrowHaxl (toException $ NotFound empty) Nothing
+    doReq (Req r) = Ok r Nothing
 
-    doCache :: CacheableReq Int -> ResultVal Int Int
-    doCache (CacheableInt i) = Ok i NilWrites
+    doCache :: CacheableReq Int -> ResultVal Int (WriteTree Int)
+    doCache (CacheableInt i) = Ok i Nothing
 
     req :: TestReq Int
     req = Req 1

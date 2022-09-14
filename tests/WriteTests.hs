@@ -15,6 +15,7 @@ module WriteTests (tests) where
 
 import Test.HUnit
 
+import Control.Arrow
 import Control.Concurrent
 import Data.Either
 import Data.Foldable
@@ -22,7 +23,7 @@ import Data.Hashable
 import Data.IORef
 import qualified Data.Text as Text
 
-import Haxl.Core.Monad (mapWrites, flattenWT)
+import Haxl.Core.Monad (mapWrites, flattenWT, WriteTree)
 import Haxl.Core
 import Haxl.Prelude as Haxl
 
@@ -58,12 +59,12 @@ assertEqualIgnoreOrder ::
 assertEqualIgnoreOrder msg lhs rhs =
   assertEqual msg (sort lhs) (sort rhs)
 
-doInnerWrite :: GenHaxl u SimpleWrite Int
+doInnerWrite :: GenHaxl u (WriteTree SimpleWrite) Int
 doInnerWrite = do
   tellWrite $ SimpleWrite "inner"
   return 0
 
-doOuterWrite :: GenHaxl u SimpleWrite Int
+doOuterWrite :: GenHaxl u (WriteTree SimpleWrite) Int
 doOuterWrite = do
   tellWrite $ SimpleWrite "outer1"
 
@@ -76,11 +77,14 @@ doOuterWrite = do
 
   return 1
 
-doNonMemoWrites :: GenHaxl u SimpleWrite Int
+doNonMemoWrites :: GenHaxl u (WriteTree SimpleWrite) Int
 doNonMemoWrites = do
   tellWrite $ SimpleWrite "inner"
   tellWriteNoMemo $ SimpleWrite "inner not memo"
   return 0
+
+runHaxlWithWriteList :: Env u (WriteTree w) -> GenHaxl u (WriteTree w) a -> IO (a, [w])
+runHaxlWithWriteList env haxl = second flattenWT <$> runHaxlWithWrites env haxl
 
 writeSoundness :: Test
 writeSoundness = TestCase $ do
@@ -88,7 +92,7 @@ writeSoundness = TestCase $ do
 
   -- do writes without memoization
   env1 <- emptyEnv ()
-  (allRes, allWrites) <- runHaxlWithWrites env1 $
+  (allRes, allWrites) <- runHaxlWithWriteList env1 $
     Haxl.sequence (replicate numReps doInnerWrite)
 
   assertBool "Write Soundness 1" $
@@ -98,7 +102,7 @@ writeSoundness = TestCase $ do
   -- do writes with memoization
   env2 <- emptyEnv ()
 
-  (memoRes, memoWrites) <- runHaxlWithWrites env2 $ do
+  (memoRes, memoWrites) <- runHaxlWithWriteList env2 $ do
     doWriteMemo <- newMemoWith doInnerWrite
     let memoizedWrite = runMemo doWriteMemo
 
@@ -111,7 +115,7 @@ writeSoundness = TestCase $ do
   -- do writes with interleaved memo
   env3 <- emptyEnv ()
 
-  (ilRes, ilWrites) <- runHaxlWithWrites env3 $ do
+  (ilRes, ilWrites) <- runHaxlWithWriteList env3 $ do
     doWriteMemo <- newMemoWith doInnerWrite
     let memoizedWrite = runMemo doWriteMemo
 
@@ -124,7 +128,7 @@ writeSoundness = TestCase $ do
   -- do writes with nested memo
   env4 <- emptyEnv ()
 
-  (nestRes, nestWrites) <- runHaxlWithWrites env4 $ do
+  (nestRes, nestWrites) <- runHaxlWithWriteList env4 $ do
     doWriteMemo' <- newMemoWith doOuterWrite
     let memoizedWrite' = runMemo doWriteMemo'
 
@@ -142,7 +146,7 @@ writeSoundness = TestCase $ do
 
   -- do both kinds of writes without memoization
   env5 <- emptyEnv ()
-  (allRes, allWrites) <- runHaxlWithWrites env5 $
+  (allRes, allWrites) <- runHaxlWithWriteList env5 $
     Haxl.sequence (replicate numReps doNonMemoWrites)
 
   assertBool "Write Soundness 9" $
@@ -153,7 +157,7 @@ writeSoundness = TestCase $ do
   -- do both kinds of writes with memoization
   env6 <- emptyEnv ()
 
-  (memoRes, memoWrites) <- runHaxlWithWrites env6 $ do
+  (memoRes, memoWrites) <- runHaxlWithWriteList env6 $ do
     doWriteMemo <- newMemoWith doNonMemoWrites
     let memoizedWrite = runMemo doWriteMemo
 
@@ -168,7 +172,7 @@ writeSoundness = TestCase $ do
 writeLogsCorrectnessTest :: Test
 writeLogsCorrectnessTest = TestLabel "writeLogs_correctness" $ TestCase $ do
   e <- emptyEnv ()
-  (_ , wrts) <- runHaxlWithWrites e doNonMemoWrites
+  (_ , wrts) <- runHaxlWithWriteList e doNonMemoWrites
   assertEqualIgnoreOrder "Expected writes" [SimpleWrite "inner",
     SimpleWrite "inner not memo"] wrts
   wrtsNoMemo <- readIORef $ writeLogsRefNoMemo e
@@ -180,14 +184,14 @@ mapWritesTest :: Test
 mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
   let func (SimpleWrite s) = SimpleWrite $ Text.toUpper s
   env0 <- emptyEnv ()
-  (res0, wrts0) <- runHaxlWithWrites env0 $ mapWrites func doNonMemoWrites
+  (res0, wrts0) <- runHaxlWithWriteList env0 $ mapWrites func doNonMemoWrites
   assertEqual "Expected computation result" 0 res0
   assertEqualIgnoreOrder "Writes correctly transformed" [SimpleWrite "INNER",
     SimpleWrite "INNER NOT MEMO"] wrts0
 
   -- Writes should behave the same inside and outside mapWrites
   env1 <- emptyEnv ()
-  (res1, wrts1) <- runHaxlWithWrites env1 $ do
+  (res1, wrts1) <- runHaxlWithWriteList env1 $ do
     outer <- doOuterWrite
     outerMapped <- mapWrites func doOuterWrite
     return $ outer == outerMapped
@@ -203,7 +207,7 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
 
   -- Memoization behaviour should be unaffected
   env2 <- emptyEnv ()
-  (_res2, wrts2) <- runHaxlWithWrites env2 $ do
+  (_res2, wrts2) <- runHaxlWithWriteList env2 $ do
     writeMemo <- newMemoWith doNonMemoWrites
     let doWriteMemo = runMemo writeMemo
     _ <- mapWrites func doWriteMemo
@@ -220,7 +224,7 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
 
   -- Same as previous, but the non-mapped computation is run first
   env3 <- emptyEnv ()
-  (_res3, wrts3) <- runHaxlWithWrites env3 $ do
+  (_res3, wrts3) <- runHaxlWithWriteList env3 $ do
     writeMemo <- newMemoWith doNonMemoWrites
     let doWriteMemo = runMemo writeMemo
     _ <- doWriteMemo
@@ -237,14 +241,14 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
 
   -- inner computation performs no writes
   env4 <- emptyEnv ()
-  (res4, wrts4) <- runHaxlWithWrites env4 $
+  (res4, wrts4) <- runHaxlWithWriteList env4 $
     mapWrites func (return (0 :: Int))
   assertEqual "No Writes: Expected computation result" 0 res4
   assertEqualIgnoreOrder "No writes" [] wrts4
 
   -- inner computation throws an exception
   env5 <- emptyEnv ()
-  (res5, wrts5) <- runHaxlWithWrites env5 $ mapWrites func $ try $ do
+  (res5, wrts5) <- runHaxlWithWriteList env5 $ mapWrites func $ try $ do
     _ <- doNonMemoWrites
     _ <- throw (NotFound "exception")
     return 0
@@ -259,7 +263,7 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
 
   -- inner computation calls a datasource
   env6 <- initEnv (stateSet DSState stateEmpty) ()
-  (res6, wrts6) <- runHaxlWithWrites env6 $ mapWrites func $ do
+  (res6, wrts6) <- runHaxlWithWriteList env6 $ mapWrites func $ do
     _ <- doNonMemoWrites
     dataFetch GetNumber
 
@@ -273,7 +277,7 @@ mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
 
   -- inner computation calls a datasource, flipped calls
   env7 <- initEnv (stateSet DSState stateEmpty) ()
-  (res7, wrts7) <- runHaxlWithWrites env7 $ mapWrites func $ do
+  (res7, wrts7) <- runHaxlWithWriteList env7 $ mapWrites func $ do
     df <- dataFetch GetNumber
     _ <- doNonMemoWrites
     return df

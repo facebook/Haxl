@@ -22,20 +22,21 @@ import Haxl.Prelude as Haxl
 import Prelude()
 
 import Haxl.Core
+import Haxl.Core.Monad (WriteTree)
 import Haxl.Core.Util
 
 import ExampleDataSource
 
 newtype SimpleWrite = SimpleWrite Text deriving (Eq, Show)
 
-testEnv :: ReportFlags -> IO (Env () SimpleWrite)
+testEnv :: ReportFlags -> IO (Env () (WriteTree SimpleWrite))
 testEnv report = do
   exstate <- ExampleDataSource.initGlobalState
   let st = stateSet exstate stateEmpty
   env <- initEnv st ()
   return env { flags = (flags env) { report = report } }
 
-type Test = (String, Int, Int -> GenHaxl () SimpleWrite ())
+type Test = (String, Int, Int -> GenHaxl () (WriteTree SimpleWrite) ())
 
 testName :: Test -> String
 testName (t,_,_) = t
@@ -151,19 +152,20 @@ main = do
 
 tree
   :: Int
-  -> (Int -> GenHaxl () SimpleWrite [Id] -> GenHaxl () SimpleWrite [Id])
-  -> GenHaxl () SimpleWrite [Id]
+  -> (Int -> GenHaxl () (WriteTree SimpleWrite) [Id]
+  -> GenHaxl () (WriteTree SimpleWrite) [Id])
+  -> GenHaxl () (WriteTree SimpleWrite) [Id]
 tree 0 wrap = wrap 0 $ listWombats 0
 tree n wrap = wrap n $ concat <$> Haxl.sequence
   [ tree (n-1) wrap
   , listWombats (fromIntegral n), tree (n-1) wrap
   ]
 
-unionWombats :: GenHaxl () SimpleWrite [Id]
+unionWombats :: GenHaxl () (WriteTree SimpleWrite) [Id]
 unionWombats = foldl List.union [] <$> Haxl.mapM listWombats [1..1000]
 
-unionWombatsTo :: Id -> GenHaxl () SimpleWrite [Id]
+unionWombatsTo :: Id -> GenHaxl () (WriteTree SimpleWrite) [Id]
 unionWombatsTo x = foldl List.union [] <$> Haxl.mapM listWombats [1..x]
 
-unionWombatsFromTo :: Id -> Id -> GenHaxl () SimpleWrite [Id]
+unionWombatsFromTo :: Id -> Id -> GenHaxl () (WriteTree SimpleWrite) [Id]
 unionWombatsFromTo x y = foldl List.union [] <$> Haxl.mapM listWombats [x..y]

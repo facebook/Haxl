@@ -24,6 +24,7 @@ import System.FilePath
 import ExampleDataSource
 import LoadCache
 
+testEnv :: IO (Env () ())
 testEnv = do
   -- To use a data source, we need to initialize its state:
   exstate <- ExampleDataSource.initGlobalState

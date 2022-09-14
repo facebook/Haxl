@@ -140,6 +140,7 @@ import qualified Control.Exception as Exception
 import Data.Either (rights)
 import Data.IORef
 import Data.Int
+import Data.Maybe
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
 #if __GLASGOW_HASKELL__ < 804
@@ -235,12 +236,12 @@ data Env u w = Env
        -- become non-empty is how the scheduler blocks waiting for
        -- data fetches to return.
 
-  , writeLogsRef :: {-# UNPACK #-} !(IORef (WriteTree w))
+  , writeLogsRef :: {-# UNPACK #-} !(IORef w)
        -- ^ A log of all writes done as part of this haxl computation. Any
        -- haxl computation that needs to be memoized runs in its own
        -- environment so that we can get a hold of those writes and put them
        -- in the IVar associated with the compuatation.
-  , writeLogsRefNoMemo :: {-# UNPACK #-} !(IORef (WriteTree w))
+  , writeLogsRefNoMemo :: {-# UNPACK #-} !(IORef w)
        -- ^ This is just a specialized version of @writeLogsRef@, where we put
        -- logs that user doesn't want memoized. This is a better alternative to
        -- doing arbitrary IO from a (memoized) Haxl computation.
@@ -280,7 +281,7 @@ getMaxCallId c = do
 
 -- | Initialize an environment with a 'StateStore', an input map, a
 -- preexisting 'DataCache', and a seed for the random number generator.
-initEnvWithData :: StateStore -> u -> Caches u w -> IO (Env u w)
+initEnvWithData :: Monoid w => StateStore -> u -> Caches u w -> IO (Env u w)
 initEnvWithData states e (dcache, mcache) = do
   newCid <- max <$>
     (maybe 0 ((+) 1) <$> getMaxCallId dcache) <*>
@@ -293,8 +294,8 @@ initEnvWithData states e (dcache, mcache) = do
   rq <- newIORef JobNil              -- RunQueue
   sr <- newIORef emptyReqCounts      -- SubmittedReqs
   comps <- newTVarIO []              -- completion queue
-  wl <- newIORef NilWrites
-  wlnm <- newIORef NilWrites
+  wl <- newIORef mempty
+  wlnm <- newIORef mempty
   return Env
     { dataCache = dcache
     , memoCache = mcache
@@ -321,14 +322,14 @@ initEnvWithData states e (dcache, mcache) = do
     }
 
 -- | Initializes an environment with 'StateStore' and an input map.
-initEnv :: StateStore -> u -> IO (Env u w)
+initEnv :: Monoid w => StateStore -> u -> IO (Env u w)
 initEnv states e = do
   dcache <- emptyDataCache
   mcache <- emptyDataCache
   initEnvWithData states e (dcache, mcache)
 
 -- | A new, empty environment.
-emptyEnv :: u -> IO (Env u w)
+emptyEnv :: Monoid w => u -> IO (Env u w)
 emptyEnv = initEnv stateEmpty
 
 -- | If you're using the env from a failed Haxl computation in a second Haxl
@@ -375,6 +376,12 @@ data WriteTree w
   | SomeWrite w
   | MergeWrites (WriteTree w) (WriteTree w)
   deriving (Show)
+
+instance Semigroup (WriteTree w) where
+  (<>) = appendWTs
+
+instance Monoid (WriteTree w) where
+  mempty = NilWrites
 
 appendWTs :: WriteTree w -> WriteTree w -> WriteTree w
 appendWTs NilWrites w = w
@@ -431,20 +438,20 @@ mapWriteTree f (MergeWrites wt1 wt2) =
 newtype GenHaxl u w a = GenHaxl
   { unHaxl :: Env u w -> IO (Result u w a) }
 
-tellWrite :: w -> GenHaxl u w ()
+tellWrite :: w -> GenHaxl u (WriteTree w) ()
 tellWrite = write . SomeWrite
 
-write :: WriteTree w -> GenHaxl u w ()
+write :: Monoid w => w -> GenHaxl u w ()
 write wt = GenHaxl $ \Env{..} -> do
-  mbModifyWLRef wt writeLogsRef
+  modifyIORef' writeLogsRef (<> wt)
   return $ Done ()
 
-tellWriteNoMemo :: w -> GenHaxl u w ()
+tellWriteNoMemo :: w -> GenHaxl u (WriteTree w) ()
 tellWriteNoMemo = writeNoMemo . SomeWrite
 
-writeNoMemo :: WriteTree w -> GenHaxl u w ()
+writeNoMemo :: Monoid w => w -> GenHaxl u w ()
 writeNoMemo wt = GenHaxl $ \Env{..} -> do
-  mbModifyWLRef wt writeLogsRefNoMemo
+  modifyIORef' writeLogsRefNoMemo (<> wt)
   return $ Done ()
 
 
@@ -557,15 +564,15 @@ getIVarApply i@IVar{ivarRef = !ref} a = GenHaxl $ \env -> do
       return (Blocked i (Cont (getIVarApply i a)))
 
 -- Another specialised version of getIVar, for efficiency in cachedComputation
-getIVarWithWrites :: IVar u w a -> GenHaxl u w a
+getIVarWithWrites :: Monoid w => IVar u w a -> GenHaxl u w a
 getIVarWithWrites i@IVar{ivarRef = !ref} = GenHaxl $ \env@Env{..} -> do
   e <- readIORef ref
   case e of
     IVarFull (Ok a wt) -> do
-      mbModifyWLRef wt writeLogsRef
+      modifyIORef' writeLogsRef (<> fromMaybe mempty wt)
       return (Done a)
     IVarFull (ThrowHaxl e wt) -> do
-      mbModifyWLRef wt writeLogsRef
+      modifyIORef' writeLogsRef (<> fromMaybe mempty wt)
       raiseFromIVar env i e
     IVarFull (ThrowIO e) -> throwIO e
     IVarEmpty _ ->
@@ -604,8 +611,8 @@ addJobPanic = error "addJob: not empty"
 -- that when the result is fetched using getIVar, we can throw the
 -- exception in the right way.
 data ResultVal a w
-  = Ok a (WriteTree w)
-  | ThrowHaxl SomeException (WriteTree w)
+  = Ok a (Maybe w)
+  | ThrowHaxl SomeException (Maybe w)
   | ThrowIO SomeException
     -- we get no write logs when an IO exception occurs
 
@@ -615,14 +622,14 @@ done env (ThrowHaxl e _) = raise env e
 done _ (ThrowIO e) = throwIO e
 
 eitherToResultThrowIO :: Either SomeException a -> ResultVal a w
-eitherToResultThrowIO (Right a) = Ok a NilWrites
+eitherToResultThrowIO (Right a) = Ok a Nothing
 eitherToResultThrowIO (Left e)
-  | Just HaxlException{} <- fromException e = ThrowHaxl e NilWrites
+  | Just HaxlException{} <- fromException e = ThrowHaxl e Nothing
   | otherwise = ThrowIO e
 
 eitherToResult :: Either SomeException a -> ResultVal a w
-eitherToResult (Right a) = Ok a NilWrites
-eitherToResult (Left e) = ThrowHaxl e NilWrites
+eitherToResult (Right a) = Ok a Nothing
+eitherToResult (Left e) = ThrowHaxl e Nothing
 
 
 -- -----------------------------------------------------------------------------
@@ -905,7 +912,7 @@ nextCallId env = atomicModifyIORef' (callIdRef env) $ \x -> (x+1,x+1)
 -- Memoization behavior is unchanged, meaning if a memoized computation is run
 -- once inside @mapWrites@ and then once without, the writes from the second run
 -- will NOT be transformed.
-mapWrites :: (w -> w) -> GenHaxl u w a -> GenHaxl u w a
+mapWrites :: (w -> w) -> GenHaxl u (WriteTree w) a -> GenHaxl u (WriteTree w) a
 mapWrites f action = GenHaxl $ \curEnv -> do
   wlogs <- newIORef NilWrites
   wlogsNoMemo <- newIORef NilWrites

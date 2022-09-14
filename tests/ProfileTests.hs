@@ -31,10 +31,12 @@ import qualified Data.HashMap.Strict as KeyMap
 #endif
 import Data.Int
 
+import TestTypes
 import TestUtils
 import WorkDataSource
 import SleepDataSource
 
+mkProfilingEnv :: IO HaxlEnv
 mkProfilingEnv = do
   env <- makeTestEnv False
   return env { flags = (flags env) { report = profilingReportFlags } }
@@ -137,7 +139,7 @@ exceptions = do
 -- for correct accounting when relying on allocation limits.
 threadAlloc :: Integer -> Assertion
 threadAlloc batches = do
-  env' <- initEnv (stateSet mkWorkState stateEmpty) ()
+  env' <- initEnv (stateSet mkWorkState stateEmpty) () :: IO (Env () ())
   let env = env'  { flags = (flags env') {
     report = setReportFlag ReportFetchStats defaultReportFlags } }
   a0 <- getAllocationCounter

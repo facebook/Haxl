@@ -19,7 +19,7 @@ import Test.HUnit hiding (State)
 import Control.Concurrent
 import Control.Exception as Exception
 import Control.Monad
-import Haxl.Core.Monad (unsafeLiftIO)
+import Haxl.Core.Monad (unsafeLiftIO, WriteTree)
 import System.IO.Unsafe
 import Data.Hashable
 import Data.IORef
@@ -86,7 +86,7 @@ tests = TestList
   [ TestLabel "exceptionTest" exceptionTest
   ]
 
-mkTestEnv :: IO (Env () SimpleWrite)
+mkTestEnv :: IO (Env () (WriteTree SimpleWrite))
 mkTestEnv = do
   st <- initDataSource
   initEnv (stateSet st stateEmpty) ()

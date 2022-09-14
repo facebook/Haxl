@@ -20,6 +20,7 @@ import Haxl.Core.Monad (unsafeLiftIO)
 tests :: Test
 tests = sleepTest
 
+testEnv :: IO (Env () ())
 testEnv = do
   st <- mkConcurrentIOState
   env <- initEnv (stateSet st stateEmpty) ()

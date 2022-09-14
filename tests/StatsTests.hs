@@ -66,7 +66,7 @@ aggregateBatches = TestCase $ do
   assertEqual
     "Grouping works as expected" expectedResultInterspersed aggInterspersedBatch
 
-
+testEnv :: IO (Env () ())
 testEnv = do
   -- To use a data source, we need to initialize its state:
   exstate <- ExampleDataSource.initGlobalState

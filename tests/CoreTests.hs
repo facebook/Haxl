@@ -33,7 +33,7 @@ testEnv = do
   let st = stateSet exstate stateEmpty
 
   -- Create the Env:
-  initEnv st ()
+  initEnv st () :: IO (Env () ())
 
 useless :: String -> GenHaxl u w Bool
 useless _ = throw (NotFound "ha ha")
@@ -41,7 +41,7 @@ useless _ = throw (NotFound "ha ha")
 exceptions :: Assertion
 exceptions =
   do
-    en <- emptyEnv ()
+    en <- emptyEnv () :: IO (Env () ())
     a <- runHaxl en $ try (useless "input")
     assertBool "NotFound -> HaxlException" $
       isLeft (a :: Either HaxlException Bool)
@@ -132,7 +132,7 @@ exceptions =
 -- makes the compiler happy.
 base :: (Exception a) => a -> IO HaxlException
 base e = do
-  en <- emptyEnv ()
+  en <- emptyEnv () :: IO (Env () ())
   runHaxl en $ throw e `catch` \x -> return x
 
 printing :: Assertion
@@ -154,21 +154,21 @@ printing = do
 withEnvTest :: Test
 withEnvTest = TestLabel "withEnvTest" $ TestCase $ do
   exstate <- ExampleDataSource.initGlobalState
-  e <- initEnv (stateSet exstate stateEmpty) False
+  e <- initEnv (stateSet exstate stateEmpty) False :: IO (Env Bool ())
   b <- runHaxl e $ withEnv e { userEnv = True } $ env userEnv
   assertBool "withEnv1" b
-  e <- initEnv (stateSet exstate stateEmpty) False
+  e <- initEnv (stateSet exstate stateEmpty) False :: IO (Env Bool ())
   b <- runHaxl e $ withEnv e { userEnv = True } $ do
     _ <- countAardvarks "aaa"
     env userEnv
   assertBool "withEnv2" b
-  e <- initEnv (stateSet exstate stateEmpty) False
+  e <- initEnv (stateSet exstate stateEmpty) False :: IO (Env Bool ())
   b <- runHaxl e $ withEnv e { userEnv = True } $ do
     memo ("xxx" :: Text) $ do
       _ <- countAardvarks "aaa"
       env userEnv
   assertBool "withEnv3" b
-  e <- initEnv (stateSet exstate stateEmpty) False
+  e <- initEnv (stateSet exstate stateEmpty) False :: IO (Env Bool ())
   b <- runHaxl e $
     withEnv e { userEnv = True } $ do
       memo ("yyy" :: Text) $ do

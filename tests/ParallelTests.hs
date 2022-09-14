@@ -10,6 +10,7 @@ import Data.Time.Clock
 
 import Test.HUnit
 
+testEnv :: IO (Env () ())
 testEnv = do
   sleepState <- mkConcurrentIOState
   let st = stateSet sleepState stateEmpty

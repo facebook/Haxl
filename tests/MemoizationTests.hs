@@ -19,7 +19,7 @@ memoSoundness :: Test
 memoSoundness = TestCase $ do
   iEnv <- do
     exState <- ExampleDataSource.initGlobalState
-    initEnv (stateSet exState stateEmpty) ()
+    initEnv (stateSet exState stateEmpty) () :: IO (Env () ())
 
   unMemoizedWombats <- runHaxl iEnv $ listWombats 100
 
