@@ -23,7 +23,7 @@ import Data.Hashable
 import Data.IORef
 import qualified Data.Text as Text
 
-import Haxl.Core.Monad (mapWrites, flattenWT, WriteTree)
+import Haxl.Core.Monad (mapWrites, mapWriteTree, flattenWT, WriteTree)
 import Haxl.Core
 import Haxl.Prelude as Haxl
 
@@ -182,7 +182,8 @@ writeLogsCorrectnessTest = TestLabel "writeLogs_correctness" $ TestCase $ do
 
 mapWritesTest :: Test
 mapWritesTest = TestLabel "mapWrites" $ TestCase $ do
-  let func (SimpleWrite s) = SimpleWrite $ Text.toUpper s
+  let funcSingle (SimpleWrite s) = SimpleWrite $ Text.toUpper s
+      func = mapWriteTree funcSingle
   env0 <- emptyEnv ()
   (res0, wrts0) <- runHaxlWithWriteList env0 $ mapWrites func doNonMemoWrites
   assertEqual "Expected computation result" 0 res0

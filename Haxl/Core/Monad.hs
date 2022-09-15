@@ -49,6 +49,7 @@ module Haxl.Core.Monad
   , appendWTs
   , mbModifyWLRef
   , mapWrites
+  , mapWriteTree
 
     -- * Cont
   , Cont(..)
@@ -912,10 +913,10 @@ nextCallId env = atomicModifyIORef' (callIdRef env) $ \x -> (x+1,x+1)
 -- Memoization behavior is unchanged, meaning if a memoized computation is run
 -- once inside @mapWrites@ and then once without, the writes from the second run
 -- will NOT be transformed.
-mapWrites :: (w -> w) -> GenHaxl u (WriteTree w) a -> GenHaxl u (WriteTree w) a
+mapWrites :: Monoid w => (w -> w) -> GenHaxl u w a -> GenHaxl u w a
 mapWrites f action = GenHaxl $ \curEnv -> do
-  wlogs <- newIORef NilWrites
-  wlogsNoMemo <- newIORef NilWrites
+  wlogs <- newIORef mempty
+  wlogsNoMemo <- newIORef mempty
   let
     !newEnv = curEnv { writeLogsRef = wlogs, writeLogsRefNoMemo = wlogsNoMemo }
   unHaxl (mapWritesImpl curEnv newEnv action) newEnv
@@ -924,9 +925,9 @@ mapWrites f action = GenHaxl $ \curEnv -> do
       let
         pushTransformedWrites = do
           wt <- readIORef $ writeLogsRef curEnv
-          mbModifyWLRef (mapWriteTree f wt) (writeLogsRef oldEnv)
+          modifyIORef' (writeLogsRef oldEnv) (<> f wt)
           wtNoMemo <- readIORef $ writeLogsRefNoMemo curEnv
-          mbModifyWLRef (mapWriteTree f wtNoMemo) (writeLogsRefNoMemo oldEnv)
+          modifyIORef' (writeLogsRefNoMemo oldEnv) (<> f wtNoMemo)
 
       r <- m curEnv
 
