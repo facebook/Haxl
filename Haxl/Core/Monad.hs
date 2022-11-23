@@ -706,6 +706,11 @@ instance (Show a) => Show (Result u w a) where
   show (Throw e) = printf "Throw(%s)" $ show e
   show Blocked{} = "Blocked"
 
+instance Functor (Result u w) where
+  fmap f (Done a) = Done (f a)
+  fmap _ (Throw exc) = Throw exc
+  fmap f (Blocked ivar cont) = Blocked ivar (f :<$> cont)
+
 {- Note [Exception]
 
 How do we want to represent Haxl exceptions (those that are thrown by
