@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ['9.8', '9.6', '9.4', '9.2', '9.0', '8.10', '8.8', '8.6', '8.4', '8.2']
+        ghc: ['9.8', '9.6', '9.4', '9.2', '9.0', '8.10', '8.8', '8.6', '8.4']
 
     steps:
     - uses: actions/checkout@v4
@@ -50,4 +50,5 @@ jobs:
       run: cabal test
 
     - name: Haddock
+      # cabal haddock --enable-documentation fails on vector
       run: cabal haddock --disable-documentation
