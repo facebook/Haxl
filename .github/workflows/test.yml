@@ -13,37 +13,41 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ['9.2.2', '9.0.1', '8.10.7', '8.8.4', '8.6.5', '8.4.4', '8.2.2']
+        ghc: ['9.8', '9.6', '9.4', '9.2', '9.0', '8.10', '8.8', '8.6', '8.4', '8.2']
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: haskell/actions/setup@v1
+    - uses: actions/checkout@v4
+    - uses: haskell-actions/setup@v2
+      id:   setup
       with:
         ghc-version: ${{ matrix.ghc }}
-        cabal-version: '3.2'
+        cabal-version: latest
+        cabal-update:  true
 
-    - run: cabal update
-    - run: cabal freeze
+    - name: Configure
+      run: |
+        cabal configure --enable-tests --enable-benchmarks --disable-documentation
+        cabal build --dry-run
+      # The latter generates dist-newstyle/cache/plan.json
 
     - name: Cache Cabal
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: |
           ~/.cabal/packages
           ~/.cabal/store
           ~/.hlint
-        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.project.freeze') }}
+        key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-plan-${{ hashFiles('dist-newstyle/cache/plan.json') }}
+        restore-keys: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-
 
-    - run: rm cabal.project.freeze
+    - name: Build dependencies
+      run: cabal build --dependencies-only
 
-    - name: Build without tests and benchmarks
-      run: cabal build --disable-tests --disable-benchmarks
-
-    - name: Build with tests and benchmarks
-      run: cabal build --enable-tests --enable-benchmarks
+    - name: Build
+      run: cabal build
 
     - name: Test
-      run: cabal test --enable-tests --enable-benchmarks
+      run: cabal test
 
     - name: Haddock
       run: cabal haddock
