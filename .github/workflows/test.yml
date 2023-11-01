@@ -50,4 +50,4 @@ jobs:
       run: cabal test
 
     - name: Haddock
-      run: cabal haddock
+      run: cabal haddock --disable-documentation
