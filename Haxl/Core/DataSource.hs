@@ -107,6 +107,9 @@ class (DataSourceName req, StateKey req, ShowP req) => DataSource u req where
   schedulerHint :: u -> SchedulerHint req
   schedulerHint _ = TryToBatch
 
+  schedulerHintState :: Maybe (State req) -> u -> SchedulerHint req
+  schedulerHintState _ u = schedulerHint u
+
   classifyFailure :: u -> req a -> SomeException -> FailureClassification
   classifyFailure _ _ _ = StandardFailure
 

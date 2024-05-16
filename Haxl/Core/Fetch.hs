@@ -264,7 +264,9 @@ dataFetchWithInsert showFn insertFn req =
         blockedFetch = BlockedFetch req rvar
         blockedFetchI = BlockedFetchInternal fid
         submitFetch = do
-          case schedulerHint userEnv :: SchedulerHint r of
+          let hint :: SchedulerHint r
+              hint = schedulerHintState (stateGet states) userEnv
+          case hint of
             SubmitImmediately ->
               performFetches env [BlockedFetches [blockedFetch] [blockedFetchI]]
             TryToBatch ->
