@@ -1,3 +1,6 @@
+# Changes in version 2.5.1.0
+  * Add schedulerHintState method to DataSource
+
 # Changes in version 2.4.0.0
   * Added fetchBatchId to FetchStats
   * Profiling now tracks full stacks and links each label to memos/fetches
