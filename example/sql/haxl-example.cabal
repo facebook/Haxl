@@ -1,6 +1,10 @@
 cabal-version: >=1.8
 name: haxl-example
 version: 0.1.0.0
+license:             BSD3
+license-file:        LICENSE
+author:              Facebook, Inc.
+copyright:           Copyright (c) 2014-present, Facebook, Inc.
 executable example
   main-is:
     Main.hs
