@@ -14,12 +14,16 @@ build-type:          Simple
 stability:           alpha
 cabal-version:       >= 1.10
 tested-with:
-  GHC==8.4.4,
-  GHC==8.6.5,
-  GHC==8.8.4,
+  GHC==8.4.4
+  GHC==8.6.5
+  GHC==8.8.4
   GHC==8.10.7
-  GHC==9.0.1
-  GHC==9.2.2
+  GHC==9.0.2
+  GHC==9.2.8
+  GHC==9.4.8
+  GHC==9.6.6
+  GHC==9.8.2
+  GHC==9.10.1
 
 description:
   Haxl is a library and EDSL for efficient scheduling of concurrent data
@@ -44,25 +48,25 @@ extra-source-files:
 library
 
   build-depends:
-    aeson >= 0.6 && < 2.1,
+    aeson >= 0.6 && < 2.3,
     base >= 4.10 && < 5,
     binary >= 0.7 && < 0.10,
-    bytestring >= 0.9 && < 0.12,
-    containers >= 0.5 && < 0.7,
+    bytestring >= 0.9 && < 0.13,
+    containers >= 0.5 && < 0.8,
     deepseq,
     exceptions >=0.8 && <0.11,
-    filepath >= 1.3 && < 1.5,
+    filepath >= 1.3 && < 1.6,
     ghc-prim,
-    hashable >= 1.2 && < 1.5,
+    hashable >= 1.2 && < 1.6,
     hashtables >= 1.2.3.1,
     pretty == 1.1.*,
     -- text 1.2.1.0 required for instance Binary Text
-    text >= 1.2.1.0 && < 1.3,
-    time >= 1.4 && < 1.12,
+    text >= 1.2.1.0 && < 1.3 || >= 2 && < 2.2,
+    time >= 1.4 && < 1.13,
     stm >= 2.4 && < 2.6,
     transformers,
     unordered-containers == 0.2.*,
-    vector >= 0.10 && <0.13
+    vector >= 0.10 && <0.14
 
   exposed-modules:
     Haxl.Core,
@@ -88,6 +92,8 @@ library
     Haxl.Core.Util
 
   default-language: Haskell2010
+  default-extensions:
+    TypeOperators
 
   ghc-options:
     -O2 -fprof-auto
@@ -156,6 +162,8 @@ test-suite test
     exitcode-stdio-1.0
 
   default-language: Haskell2010
+  default-extensions:
+    TypeOperators
 
 flag bench
   default: False
@@ -165,6 +173,8 @@ executable monadbench
     buildable: False
   default-language:
     Haskell2010
+  default-extensions:
+    TypeOperators
   hs-source-dirs:
     tests
   build-depends:
@@ -185,6 +195,8 @@ executable cachebench
     buildable: False
   default-language:
     Haskell2010
+  default-extensions:
+    TypeOperators
   hs-source-dirs:
     tests
   build-depends:
