@@ -1,5 +1,5 @@
 name:                haxl
-version:             2.5.1.0
+version:             2.5.1.1
 synopsis:            A Haskell library for efficient, concurrent,
                      and concise data access.
 homepage:            https://github.com/facebook/Haxl

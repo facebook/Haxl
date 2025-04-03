@@ -1,3 +1,6 @@
+# Changes in version 2.5.1.1
+  * Bump dependencies; builds up to GHC 9.10
+
 # Changes in version 2.5.1.0
   * Add schedulerHintState method to DataSource
 
