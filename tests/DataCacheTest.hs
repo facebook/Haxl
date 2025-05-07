@@ -25,7 +25,7 @@ import Data.Typeable
 import Prelude hiding (mapM)
 import Test.HUnit
 import Data.IORef
-import Data.Text
+import qualified Data.Text as Text
 import Unsafe.Coerce
 
 data TestReq a where
@@ -42,7 +42,7 @@ instance DataSource u TestReq where
   fetch = error "no fetch defined"
 
 instance DataSourceName TestReq where
-  dataSourceName _ = pack "TestReq"
+  dataSourceName _ = Text.pack "TestReq"
 
 instance StateKey TestReq where
   data State TestReq = TestReqState
@@ -179,7 +179,7 @@ dcFallbackTest = TestLabel "DataCache fallback" $ TestList
       | otherwise = return Nothing
 
     doReq :: TestReq Int -> ResultVal Int (WriteTree Int)
-    doReq (Req 999) = ThrowHaxl (toException $ NotFound empty) Nothing
+    doReq (Req 999) = ThrowHaxl (toException $ NotFound Text.empty) Nothing
     doReq (Req r) = Ok r Nothing
 
     doCache :: CacheableReq Int -> ResultVal Int (WriteTree Int)
